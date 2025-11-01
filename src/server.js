@@ -14,7 +14,7 @@ dotenv.config();
 const app = express();
 
 // ✅ CONFIGURATION CORS AMÉLIORÉE
-const allowedOrigin = process.env.ALLOWEDORIGIN?.split(',') || []
+const allowedOrigin = process.env.ALLOWED_ORIGIN?.split(',') || []
 
 const corsOptions = {
   origin: allowedOrigin,
