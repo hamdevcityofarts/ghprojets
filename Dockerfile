@@ -29,6 +29,15 @@ WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app .
 
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# 2. Rendre le script exécutable
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# 3. Définir le script comme le point d'entrée du conteneur
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
 # Exposer le port sur lequel l'application s'exécute (ici 5000)
 # Cela documente le port, mais il doit être mappé lors de l'exécution
 EXPOSE 5000
