@@ -1,0 +1,13 @@
+# Dépendances locales
+node_modules
+# Fichiers de débogage et de log
+npm-debug.log
+.DS_Store
+# Configuration Docker locale (si présente)
+docker-compose*.yml
+# Git
+.git
+.gitignore
+# Fichiers de build locaux (si non gérés par l'étape de build du Dockerfile)
+dist
+build
