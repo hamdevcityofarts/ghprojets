@@ -41,7 +41,7 @@ const roomsDir = path.join(uploadsDir, 'rooms');
 
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
-  console.log('✅ Dossier uploads créé:', uploadsDir);
+  console.log('✅ Dossier créé:', uploadsDir);
 }
 
 if (!fs.existsSync(roomsDir)) {

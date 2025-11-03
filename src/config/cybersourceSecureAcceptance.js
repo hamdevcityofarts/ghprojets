@@ -12,9 +12,12 @@ class CybersourceSecureAcceptance {
     this.isProduction = process.env.NODE_ENV === 'production';
     
     // ✅ URL de paiement CyberSource
-    this.paymentUrl = this.isProduction
+    /*this.paymentUrl = this.isProduction
       ? 'https://secureacceptance.cybersource.com/pay'
-      : 'https://testsecureacceptance.cybersource.com/pay';
+      : 'https://testsecureacceptance.cybersource.com/pay';*/
+
+       this.paymentUrl = 'https://testsecureacceptance.cybersource.com/pay'
+     
     
     console.log('🔐 CyberSource Secure Acceptance initialisé');
     console.log('  Mode:', this.isProduction ? 'PRODUCTION' : 'TEST');
