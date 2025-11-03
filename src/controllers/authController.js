@@ -5,7 +5,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '3d';
 
 // Générer un token JWT
 const generateToken = (userId) => {
@@ -271,5 +271,83 @@ exports.updateProfile = async (req, res) => {
       return res.status(400).json({ message: 'Un utilisateur avec cet email existe déjà' });
     }
     res.status(500).json({ message: 'Erreur serveur' });
+  }
+};
+
+
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Le mot de passe actuel et le nouveau mot de passe sont obligatoires' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'Le nouveau mot de passe doit contenir au moins 6 caractères' });
+    }
+
+    // Récupérer l'utilisateur avec le mot de passe
+    const user = await User.findById(req.user._id).select('+password');
+
+    if (!user) {
+      return res.status(404).json({ message: 'Utilisateur non trouvé' });
+    }
+
+    // Vérifier le mot de passe actuel
+    const isCurrentPasswordValid = await user.matchPassword(currentPassword);
+    if (!isCurrentPasswordValid) {
+      return res.status(400).json({ message: 'Le mot de passe actuel est incorrect' });
+    }
+
+    // Vérifier que le nouveau mot de passe est différent
+    const isSamePassword = await user.matchPassword(newPassword);
+    if (isSamePassword) {
+      return res.status(400).json({ message: 'Le nouveau mot de passe doit être différent de l\'actuel' });
+    }
+
+    // Mettre à jour le mot de passe
+    user.password = newPassword;
+    await user.save();
+
+    res.json({
+      message: 'Mot de passe modifié avec succès'
+    });
+  } catch (error) {
+    console.error('Erreur changement mot de passe:', error);
+    res.status(500).json({ message: 'Erreur serveur lors du changement de mot de passe' });
+  }
+};
+
+// ✅ NOUVELLE MÉTHODE: Vérifier le token (pour la persistance de session)
+exports.verifyToken = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'Utilisateur non trouvé' });
+    }
+
+    res.json({
+      user: {
+        id: user._id,
+        name: user.name,
+        surname: user.surname,
+        email: user.email,
+        phone: user.phone,
+        department: user.department,
+        role: user.role,
+        status: user.status,
+        permissions: user.permissions,
+        hireDate: user.hireDate,
+        lastLogin: user.lastLogin,
+        memberSince: user.memberSince,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Erreur vérification token:', error);
+    res.status(500).json({ message: 'Erreur serveur lors de la vérification du token' });
   }
 };

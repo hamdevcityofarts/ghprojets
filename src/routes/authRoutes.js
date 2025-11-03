@@ -1,22 +1,30 @@
+// src/routes/authRoutes.js (AVEC SWAGGER COMPLET)
 const express = require('express');
 const router = express.Router();
-const { register, login, getProfile, updateProfile } = require('../controllers/authController');
 const { protect } = require('../middlewares/authMiddleware');
+const {
+  register,
+  login,
+  getProfile,
+  updateProfile,
+  changePassword,
+  verifyToken
+} = require('../controllers/authController');
 
 /**
  * @swagger
  * tags:
- *   name: Auth
- *   description: Gestion de l'authentification des utilisateurs
+ *   name: Authentification
+ *   description: Gestion de l'authentification et des comptes utilisateurs
  */
 
 /**
  * @swagger
  * /auth/register:
  *   post:
- *     summary: Inscrire un nouvel utilisateur
- *     description: Crée un nouvel utilisateur et renvoie ses informations.
- *     tags: [Auth]
+ *     summary: Inscription d'un nouvel utilisateur
+ *     description: Crée un nouveau compte utilisateur avec le rôle "client" par défaut
+ *     tags: [Authentification]
  *     requestBody:
  *       required: true
  *       content:
@@ -30,42 +38,34 @@ const { protect } = require('../middlewares/authMiddleware');
  *             properties:
  *               name:
  *                 type: string
+ *                 example: "Jean"
  *                 description: Nom de l'utilisateur
- *                 example: Hamed
  *               surname:
  *                 type: string
+ *                 example: "Dupont"
  *                 description: Prénom de l'utilisateur
- *                 example: Ndonkou
  *               email:
  *                 type: string
- *                 description: Adresse email de l'utilisateur
- *                 example: hamed@example.com
+ *                 format: email
+ *                 example: "jean.dupont@example.com"
+ *                 description: Email unique de l'utilisateur
  *               password:
  *                 type: string
- *                 description: Mot de passe de l'utilisateur
- *                 example: password123
+ *                 format: password
+ *                 example: "MotDePasse123!"
+ *                 description: Mot de passe (minimum 6 caractères)
  *               phone:
  *                 type: string
- *                 description: Numéro de téléphone
- *                 example: "+33 1 23 45 67 89"
- *               department:
- *                 type: string
- *                 enum: [direction, reception, housekeeping, restaurant, maintenance, other]
- *                 description: Département de l'utilisateur
- *                 example: "reception"
+ *                 example: "+237 6XX XX XX XX"
+ *                 description: Numéro de téléphone (optionnel)
  *               role:
  *                 type: string
- *                 enum: [admin, manager, receptionist, housekeeper, supervisor, technician, client]
- *                 description: Rôle de l'utilisateur
- *                 example: "receptionist"
- *               hireDate:
- *                 type: string
- *                 format: date
- *                 description: Date d'embauche
- *                 example: "2024-01-15"
+ *                 enum: [client]
+ *                 default: "client"
+ *                 description: Rôle de l'utilisateur (uniquement client pour l'inscription publique)
  *     responses:
  *       201:
- *         description: Utilisateur inscrit avec succès
+ *         description: Utilisateur créé avec succès
  *         content:
  *           application/json:
  *             schema:
@@ -79,59 +79,52 @@ const { protect } = require('../middlewares/authMiddleware');
  *                   properties:
  *                     id:
  *                       type: string
- *                       example: "66fbc1245e8a23a4a0f1c981"
+ *                       example: "507f1f77bcf86cd799439011"
  *                     name:
  *                       type: string
- *                       example: "Hamed"
+ *                       example: "Jean"
  *                     surname:
  *                       type: string
- *                       example: "Ndonkou"
+ *                       example: "Dupont"
  *                     email:
  *                       type: string
- *                       example: "hamed@example.com"
+ *                       example: "jean.dupont@example.com"
  *                     phone:
  *                       type: string
- *                       example: "+33 1 23 45 67 89"
- *                     department:
- *                       type: string
- *                       example: "reception"
+ *                       example: "+237 6XX XX XX XX"
  *                     role:
  *                       type: string
- *                       example: "receptionist"
+ *                       example: "client"
  *                     status:
  *                       type: string
- *                       example: "pending"
- *                     permissions:
- *                       type: array
- *                       items:
- *                         type: string
- *                     hireDate:
- *                       type: string
- *                       format: date
- *                       example: "2024-01-15"
+ *                       example: "actif"
  *                     memberSince:
  *                       type: string
- *                       format: date
- *                       example: "2024-01-15T10:30:00.000Z"
+ *                       format: date-time
  *                 token:
  *                   type: string
- *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                   description: JWT token d'authentification
  *       400:
- *         description: Erreur de validation ou utilisateur déjà existant
- *       403:
- *         description: Compte en attente de validation
+ *         description: Erreur de validation ou email déjà utilisé
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Un utilisateur avec cet email existe déjà"
  *       500:
- *         description: Erreur interne du serveur
+ *         description: Erreur serveur
  */
-router.post('/register', register);
 
 /**
  * @swagger
  * /auth/login:
  *   post:
- *     summary: Connecter un utilisateur existant
- *     description: Authentifie un utilisateur et retourne un token JWT avec les informations complètes.
- *     tags: [Auth]
+ *     summary: Connexion d'un utilisateur
+ *     description: Authentifie un utilisateur et retourne un token JWT
+ *     tags: [Authentification]
  *     requestBody:
  *       required: true
  *       content:
@@ -144,12 +137,12 @@ router.post('/register', register);
  *             properties:
  *               email:
  *                 type: string
- *                 description: Email de l'utilisateur
- *                 example: hamed@example.com
+ *                 format: email
+ *                 example: "jean.dupont@example.com"
  *               password:
  *                 type: string
- *                 description: Mot de passe
- *                 example: password123
+ *                 format: password
+ *                 example: "MotDePasse123!"
  *     responses:
  *       200:
  *         description: Connexion réussie
@@ -166,66 +159,61 @@ router.post('/register', register);
  *                   properties:
  *                     id:
  *                       type: string
- *                       example: "66fbc1245e8a23a4a0f1c981"
  *                     name:
  *                       type: string
- *                       example: "Hamed"
  *                     surname:
  *                       type: string
- *                       example: "Ndonkou"
  *                     email:
  *                       type: string
- *                       example: "hamed@example.com"
  *                     phone:
  *                       type: string
- *                       example: "+33 1 23 45 67 89"
- *                     department:
- *                       type: string
- *                       example: "reception"
  *                     role:
  *                       type: string
- *                       example: "receptionist"
  *                     status:
  *                       type: string
- *                       example: "actif"
  *                     permissions:
  *                       type: array
  *                       items:
  *                         type: string
- *                       example: ["gestion_reservations", "gestion_clients"]
- *                     hireDate:
- *                       type: string
- *                       format: date
- *                       example: "2024-01-15"
  *                     lastLogin:
  *                       type: string
  *                       format: date-time
- *                       example: "2024-01-20T14:30:00.000Z"
  *                     memberSince:
  *                       type: string
  *                       format: date-time
- *                       example: "2024-01-15T10:30:00.000Z"
  *                 token:
  *                   type: string
- *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
- *       400:
- *         description: Données manquantes
  *       401:
  *         description: Identifiants invalides
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Email ou mot de passe invalide"
  *       403:
- *         description: Compte désactivé ou en attente de validation
+ *         description: Compte désactivé ou en attente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Votre compte est en attente de validation"
  *       500:
- *         description: Erreur interne du serveur
+ *         description: Erreur serveur
  */
-router.post('/login', login);
 
 /**
  * @swagger
  * /auth/profile:
  *   get:
- *     summary: Obtenir le profil de l'utilisateur connecté
- *     description: Retourne les informations du profil de l'utilisateur authentifié.
- *     tags: [Auth]
+ *     summary: Récupérer le profil utilisateur
+ *     description: Retourne les informations du profil de l'utilisateur connecté
+ *     tags: [Authentification]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -241,45 +229,31 @@ router.post('/login', login);
  *                   properties:
  *                     id:
  *                       type: string
- *                       example: "66fbc1245e8a23a4a0f1c981"
  *                     name:
  *                       type: string
- *                       example: "Hamed"
  *                     surname:
  *                       type: string
- *                       example: "Ndonkou"
  *                     email:
  *                       type: string
- *                       example: "hamed@example.com"
  *                     phone:
  *                       type: string
- *                       example: "+33 1 23 45 67 89"
- *                     department:
- *                       type: string
- *                       example: "reception"
  *                     role:
  *                       type: string
- *                       example: "receptionist"
  *                     status:
  *                       type: string
- *                       example: "actif"
  *                     permissions:
  *                       type: array
  *                       items:
  *                         type: string
- *                       example: ["gestion_reservations", "gestion_clients"]
  *                     hireDate:
  *                       type: string
- *                       format: date
- *                       example: "2024-01-15"
+ *                       format: date-time
  *                     lastLogin:
  *                       type: string
  *                       format: date-time
- *                       example: "2024-01-20T14:30:00.000Z"
  *                     memberSince:
  *                       type: string
  *                       format: date-time
- *                       example: "2024-01-15T10:30:00.000Z"
  *                     createdAt:
  *                       type: string
  *                       format: date-time
@@ -291,17 +265,12 @@ router.post('/login', login);
  *       404:
  *         description: Utilisateur non trouvé
  *       500:
- *         description: Erreur interne du serveur
- */
-router.get('/profile', protect, getProfile);
-
-/**
- * @swagger
- * /auth/profile:
+ *         description: Erreur serveur
+ * 
  *   put:
- *     summary: Mettre à jour le profil de l'utilisateur connecté
- *     description: Permet à l'utilisateur de modifier ses informations personnelles.
- *     tags: [Auth]
+ *     summary: Mettre à jour le profil utilisateur
+ *     description: Met à jour les informations personnelles de l'utilisateur connecté
+ *     tags: [Authentification]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -313,28 +282,23 @@ router.get('/profile', protect, getProfile);
  *             properties:
  *               name:
  *                 type: string
- *                 description: Nom de l'utilisateur
- *                 example: "Hamed"
+ *                 example: "Nouveau Nom"
  *               surname:
  *                 type: string
- *                 description: Prénom de l'utilisateur
- *                 example: "Ndonkou"
+ *                 example: "Nouveau Prénom"
  *               email:
  *                 type: string
- *                 description: Nouvel email
- *                 example: "nouveau@example.com"
+ *                 format: email
+ *                 example: "nouvel.email@example.com"
  *               phone:
  *                 type: string
- *                 description: Numéro de téléphone
- *                 example: "+33 1 23 45 67 89"
+ *                 example: "+237 6YY YY YY YY"
  *               department:
  *                 type: string
- *                 enum: [direction, reception, housekeeping, restaurant, maintenance, other]
- *                 description: Département
- *                 example: "reception"
+ *                 example: "other"
  *     responses:
  *       200:
- *         description: "Profil mis à jour avec succès"
+ *         description: Profil mis à jour avec succès
  *         content:
  *           application/json:
  *             schema:
@@ -356,7 +320,114 @@ router.get('/profile', protect, getProfile);
  *                       type: string
  *                     phone:
  *                       type: string
- *                     department:
+ *                     role:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                     permissions:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *       400:
+ *         description: Données invalides ou email déjà utilisé
+ *       401:
+ *         description: Non authentifié
+ *       403:
+ *         description: Tentative de modification du rôle ou statut non autorisée
+ *       500:
+ *         description: Erreur serveur
+ */
+
+/**
+ * @swagger
+ * /auth/change-password:
+ *   put:
+ *     summary: Changer le mot de passe
+ *     description: Permet à l'utilisateur connecté de modifier son mot de passe
+ *     tags: [Authentification]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 format: password
+ *                 example: "AncienMotDePasse123!"
+ *                 description: Mot de passe actuel
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 example: "NouveauMotDePasse456!"
+ *                 description: Nouveau mot de passe (minimum 6 caractères)
+ *     responses:
+ *       200:
+ *         description: Mot de passe modifié avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Mot de passe modifié avec succès"
+ *       400:
+ *         description: |
+ *           Erreurs possibles :
+ *           - Champs manquants
+ *           - Mot de passe actuel incorrect
+ *           - Nouveau mot de passe trop court
+ *           - Nouveau mot de passe identique à l'ancien
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Le mot de passe actuel est incorrect"
+ *       401:
+ *         description: Non authentifié
+ *       500:
+ *         description: Erreur serveur
+ */
+
+/**
+ * @swagger
+ * /auth/verify:
+ *   get:
+ *     summary: Vérifier le token JWT
+ *     description: Vérifie la validité du token JWT et retourne les informations utilisateur
+ *     tags: [Authentification]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Token valide
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     surname:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     phone:
  *                       type: string
  *                     role:
  *                       type: string
@@ -368,22 +439,35 @@ router.get('/profile', protect, getProfile);
  *                         type: string
  *                     hireDate:
  *                       type: string
- *                       format: date
+ *                       format: date-time
  *                     lastLogin:
  *                       type: string
  *                       format: date-time
  *                     memberSince:
  *                       type: string
  *                       format: date-time
- *       400:
- *         description: Données invalides ou email déjà utilisé
- *       403:
- *         description: Modification non autorisée
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
  *       401:
- *         description: Non authentifié
+ *         description: Token invalide ou expiré
+ *       404:
+ *         description: Utilisateur non trouvé
  *       500:
- *         description: Erreur interne du serveur
+ *         description: Erreur serveur
  */
+
+// Routes publiques
+router.post('/register', register);
+router.post('/login', login);
+
+// Routes protégées
+router.get('/profile', protect, getProfile);
 router.put('/profile', protect, updateProfile);
+router.put('/change-password', protect, changePassword);
+router.get('/verify', protect, verifyToken);
 
 module.exports = router;
