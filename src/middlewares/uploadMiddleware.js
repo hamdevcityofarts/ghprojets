@@ -1,40 +1,39 @@
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('cloudinary').v2;
 
-// ✅ CORRECTION CRITIQUE : Remonter de 2 niveaux pour sortir de /src/middlewares
-const uploadDir = path.join(__dirname, '..', '..', 'uploads', 'rooms');
+// ✅ CONFIGURATION CLOUDINARY
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
-console.log('📁 [uploadMiddleware] Chemin uploads:', uploadDir);
+console.log('☁️ [Cloudinary] Configuration:', {
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  configured: !!process.env.CLOUDINARY_API_KEY
+});
 
-// ✅ NE PAS créer le dossier ici, c'est server.js qui s'en charge
-// Mais vérifier qu'il existe avant d'uploader
-if (!fs.existsSync(uploadDir)) {
-  console.log('⚠️ [uploadMiddleware] Dossier uploads inexistant, création...');
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// Configuration du stockage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Vérifier que le dossier existe au moment de l'upload
-    if (!fs.existsSync(uploadDir)) {
-      console.log('⚠️ [multer] Création du dossier uploads au moment de l\'upload');
-      fs.mkdirSync(uploadDir, { recursive: true });
+// ✅ STOCKAGE CLOUDINARY POUR LES CHAMBRES
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'grand-hotel/rooms', // Dossier dans Cloudinary
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [
+      { width: 1920, height: 1080, crop: 'limit' }, // Image principale
+      { quality: 'auto:good' }, // Compression automatique
+      { fetch_format: 'auto' } // Format optimal (WebP si supporté)
+    ],
+    public_id: (req, file) => {
+      // Générer un nom unique
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      return `room-${uniqueSuffix}`;
     }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Générer un nom de fichier unique
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const extension = path.extname(file.originalname);
-    const filename = `room-${uniqueSuffix}${extension}`;
-    console.log('📁 [multer] Fichier uploadé:', filename);
-    cb(null, filename);
   }
 });
 
-// Filtrage des fichiers
+// ✅ FILTRAGE DES FICHIERS (même logique qu'avant)
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
   
@@ -45,6 +44,7 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+// ✅ CONFIGURATION MULTER AVEC CLOUDINARY
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
@@ -54,7 +54,7 @@ const upload = multer({
   }
 });
 
-// Middleware pour gérer les erreurs d'upload
+// ✅ GESTION DES ERREURS (inchangée)
 const handleUploadErrors = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
@@ -78,7 +78,28 @@ const handleUploadErrors = (err, req, res, next) => {
   next();
 };
 
+// ✅ NOUVELLE FONCTION : Supprimer une image de Cloudinary
+const deleteFromCloudinary = async (imageUrl) => {
+  try {
+    // Extraire le public_id de l'URL Cloudinary
+    // Exemple: https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg
+    // Public ID: sample
+    const urlParts = imageUrl.split('/');
+    const filename = urlParts[urlParts.length - 1];
+    const publicId = `grand-hotel/rooms/${filename.split('.')[0]}`;
+    
+    const result = await cloudinary.uploader.destroy(publicId);
+    console.log('🗑️ [Cloudinary] Image supprimée:', publicId, result);
+    return result;
+  } catch (error) {
+    console.error('❌ [Cloudinary] Erreur suppression:', error);
+    throw error;
+  }
+};
+
 module.exports = {
   upload,
-  handleUploadErrors
+  handleUploadErrors,
+  cloudinary,
+  deleteFromCloudinary
 };

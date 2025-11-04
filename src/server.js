@@ -35,27 +35,13 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ CORRECTION : Utiliser path.join avec '..' pour remonter à la racine
-const uploadsDir = path.join(__dirname, '..', 'uploads');
-const roomsDir = path.join(uploadsDir, 'rooms');
 
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-  console.log('✅ Dossier créé:', uploadsDir);
-}
 
-if (!fs.existsSync(roomsDir)) {
-  fs.mkdirSync(roomsDir, { recursive: true });
-  console.log('✅ Dossier uploads/rooms créé:', roomsDir);
-}
 
-// ✅ SERVIR LES FICHIERS STATIQUES AVEC EN-TÊTES CORS
-app.use('/uploads', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET');
-  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-  next();
-}, express.static(path.join(__dirname, '..', 'uploads')));
+
+
+
+
 
 // Logs pour debugging
 app.use((req, res, next) => {
@@ -145,9 +131,6 @@ const startServer = async () => {
       console.log(`\n🚀 Serveur démarré sur le port ${PORT}`);
       console.log(`📚 Documentation: http://localhost:${PORT}/api-docs`);
       console.log(`🔐 Test auth: http://localhost:${PORT}/api/auth/login`);
-      console.log(`📁 Dossier uploads: ${uploadsDir}`);
-      console.log(`📁 Dossier rooms: ${roomsDir}`);
-      console.log(`🖼️  Images accessibles via: http://localhost:${PORT}/uploads/rooms/`);
     });
 
   } catch (error) {

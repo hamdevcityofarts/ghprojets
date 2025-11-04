@@ -5,6 +5,10 @@ const imageSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  cloudinaryId: {
+    type: String,
+    default: '' // ✅ AJOUT : ID Cloudinary pour suppression
+  },
   alt: {
     type: String,
     default: ''
