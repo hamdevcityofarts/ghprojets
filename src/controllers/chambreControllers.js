@@ -1,12 +1,12 @@
 const Chambre = require('../models/chambreModel');
 const { deleteFromCloudinary } = require('../middlewares/uploadMiddleware');
 
-// ✅ CRÉATION CORRIGÉE - URLs CLOUDINARY
+// ✅ CRÉATION SIMPLIFIÉE - ACCEPTE URLs DIRECTES CLOUDINARY
 exports.createChambre = async (req, res) => {
   try {
-    console.log('📥 Données reçues:', req.body);
-    console.log('📁 Fichiers reçus:', req.files);
+    console.log('📥 Données reçues (URLs Cloudinary):', req.body);
 
+    // ✅ PLUS BESOIN DE MULTER - les images viennent déjà en URLs
     const { 
       number, 
       name, 
@@ -18,7 +18,8 @@ exports.createChambre = async (req, res) => {
       bedType, 
       status, 
       description, 
-      amenities 
+      amenities,
+      images // ✅ URLs Cloudinary directement du frontend
     } = req.body;
 
     // ✅ Vérifier si le numéro existe déjà
@@ -30,20 +31,7 @@ exports.createChambre = async (req, res) => {
       });
     }
 
-    // ✅ CLOUDINARY: Les fichiers uploadés contiennent déjà les URLs
-    let images = [];
-    if (req.files && req.files.length > 0) {
-      images = req.files.map((file, index) => ({
-        url: file.path, // ✅ Cloudinary stocke l'URL dans file.path
-        cloudinaryId: file.filename, // ✅ ID Cloudinary pour suppression future
-        alt: `${name || 'Chambre'} - Image ${index + 1}`,
-        isPrimary: index === 0,
-        order: index
-      }));
-      console.log('🖼️ Images Cloudinary créées:', images);
-    }
-
-    // ✅ CRÉER LA CHAMBRE AVEC LES IMAGES
+    // ✅ CRÉER LA CHAMBRE DIRECTEMENT AVEC LES URLs CLOUDINARY
     const chambre = await Chambre.create({
       number,
       name,
@@ -57,10 +45,10 @@ exports.createChambre = async (req, res) => {
       status: status || 'disponible',
       description,
       amenities: Array.isArray(amenities) ? amenities : (amenities ? [amenities] : []),
-      images: images
+      images: images || [] // ✅ URLs Cloudinary directement
     });
 
-    console.log('✅ Chambre créée avec succès (Cloudinary):', {
+    console.log('✅ Chambre créée avec URLs Cloudinary:', {
       id: chambre._id,
       number: chambre.number,
       images: chambre.images.length
@@ -81,7 +69,7 @@ exports.createChambre = async (req, res) => {
   }
 };
 
-// ✅ AUTRES FONCTIONS (inchangées)
+// ✅ RÉCUPÉRATION DES CHAMBRES
 exports.getChambres = async (req, res) => {
   try {
     const chambres = await Chambre.find({ isActive: true });
@@ -101,6 +89,7 @@ exports.getChambres = async (req, res) => {
   }
 };
 
+// ✅ RÉCUPÉRATION D'UNE CHAMBRE PAR ID
 exports.getChambreById = async (req, res) => {
   try {
     const chambre = await Chambre.findById(req.params.id);
@@ -126,6 +115,7 @@ exports.getChambreById = async (req, res) => {
   }
 };
 
+// ✅ MISE À JOUR SIMPLIFIÉE
 exports.updateChambre = async (req, res) => {
   try {
     const chambre = await Chambre.findById(req.params.id);
@@ -137,8 +127,15 @@ exports.updateChambre = async (req, res) => {
       });
     }
 
+    // ✅ METTRE À JOUR DIRECTEMENT AVEC LES DONNÉES JSON
     Object.assign(chambre, req.body);
     await chambre.save();
+
+    console.log('✅ Chambre mise à jour avec URLs Cloudinary:', {
+      id: chambre._id,
+      number: chambre.number,
+      images: chambre.images.length
+    });
 
     res.json({
       success: true,
@@ -155,7 +152,7 @@ exports.updateChambre = async (req, res) => {
   }
 };
 
-// ✅ SUPPRESSION MODIFIÉE - CLOUDINARY
+// ✅ SUPPRESSION AVEC NETTOYAGE CLOUDINARY
 exports.deleteChambre = async (req, res) => {
   try {
     const chambre = await Chambre.findById(req.params.id);
@@ -171,8 +168,10 @@ exports.deleteChambre = async (req, res) => {
     if (chambre.images && chambre.images.length > 0) {
       for (const image of chambre.images) {
         try {
-          await deleteFromCloudinary(image.url);
-          console.log('✅ Image Cloudinary supprimée:', image.cloudinaryId);
+          if (image.cloudinaryId) {
+            await deleteFromCloudinary(image.url);
+            console.log('✅ Image Cloudinary supprimée:', image.cloudinaryId);
+          }
         } catch (error) {
           console.error('⚠️ Erreur suppression Cloudinary:', error);
           // Continue même si la suppression échoue
@@ -182,6 +181,8 @@ exports.deleteChambre = async (req, res) => {
 
     chambre.isActive = false;
     await chambre.save();
+
+    console.log('✅ Chambre supprimée:', chambre.number);
 
     res.json({
       success: true,
@@ -197,7 +198,7 @@ exports.deleteChambre = async (req, res) => {
   }
 };
 
-// ✅ UPLOAD UNIQUE MODIFIÉ - CLOUDINARY
+// ✅ UPLOAD UNIQUE (POUR AUTRES USAGES)
 exports.uploadImage = async (req, res) => {
   try {
     if (!req.file) {
@@ -234,7 +235,7 @@ exports.uploadImage = async (req, res) => {
   }
 };
 
-// ✅ UPLOAD MULTIPLE MODIFIÉ - CLOUDINARY
+// ✅ UPLOAD MULTIPLE (POUR AUTRES USAGES)
 exports.uploadMultipleImages = async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -266,7 +267,7 @@ exports.uploadMultipleImages = async (req, res) => {
   }
 };
 
-// ✅ SUPPRESSION IMAGE MODIFIÉE - CLOUDINARY
+// ✅ SUPPRESSION IMAGE (POUR AUTRES USAGES)
 exports.deleteImage = async (req, res) => {
   try {
     const { filename } = req.params;

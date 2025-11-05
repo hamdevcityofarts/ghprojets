@@ -17,21 +17,19 @@ const { protect, restrictTo } = require('../middlewares/authMiddleware');
 router.get('/', getChambres);
 router.get('/:id', getChambreById);
 
-// ✅ ROUTES PROTÉGÉES (admin seulement)
+// ✅ ROUTES PROTÉGÉES (admin seulement) - PLUS D'UPLOAD MULTER
 router.post(
   '/', 
   protect, 
   restrictTo('admin'), 
-  upload.array('images', 10), 
-  handleUploadErrors, 
-  createChambre
+  createChambre // ✅ Directement le controller (sans Multer)
 );
 
 router.put(
   '/:id', 
   protect, 
   restrictTo('admin'), 
-  updateChambre
+  updateChambre // ✅ Directement le controller (sans Multer)
 );
 
 router.delete(
@@ -41,12 +39,13 @@ router.delete(
   deleteChambre
 );
 
-// ✅ ROUTES D'UPLOAD SUPPLÉMENTAIRES
+// ✅ ROUTES D'UPLOAD SUPPLÉMENTAIRES (POUR AUTRES USAGES)
+// Ces routes utilisent Multer pour des uploads spécifiques
 router.post(
   '/upload/image', 
   protect, 
   restrictTo('admin'), 
-  upload.single('image'), 
+  upload.single('image'), // ✅ Multer pour upload unique
   handleUploadErrors, 
   uploadImage
 );
@@ -55,7 +54,7 @@ router.post(
   '/upload/images', 
   protect, 
   restrictTo('admin'), 
-  upload.array('images', 10), 
+  upload.array('images', 10), // ✅ Multer pour upload multiple
   handleUploadErrors, 
   uploadMultipleImages
 );
