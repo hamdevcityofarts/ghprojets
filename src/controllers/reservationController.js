@@ -1,6 +1,7 @@
 const Reservation = require('../models/reservationModel');
 const Chambre = require('../models/chambreModel');
 const User = require('../models/userModel');
+const CodePromo = require('../models/CodePromo'); // ✅ NOUVEAU IMPORT
 const crypto = require('crypto');
 const CybersourceSecure = require('../config/cybersourceSecureAcceptance');
 
@@ -16,8 +17,9 @@ exports.createReservation = async (req, res) => {
       children, 
       specialRequests, 
       paymentMethod,
-      paymentOption, // ✅ NOUVEAU : Option de paiement
-      nightsToPay    // ✅ NOUVEAU : Nuits à payer
+      paymentOption, // ✅ Option de paiement
+      nightsToPay,   // ✅ Nuits à payer
+      codePromo      // ✅ NOUVEAU : Code promo
     } = req.body;
     
     console.log('📥 Données reçues:', req.body);
@@ -55,7 +57,7 @@ exports.createReservation = async (req, res) => {
     const checkOutDate = new Date(checkOut);
     const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
     
-    // ✅ NOUVEAU : Calcul dynamique du montant selon l'option de paiement
+    // ✅ Calcul dynamique du montant selon l'option de paiement
     let totalAmount;
     let calculatedNightsToPay = nightsToPay || nights;
     
@@ -79,6 +81,54 @@ exports.createReservation = async (req, res) => {
         break;
     }
 
+    // ✅ NOUVEAU : Gestion du code promo
+    let prixFinal = totalAmount;
+    let codePromoApplique = null;
+    let reduction = 0;
+    let prixOriginal = totalAmount;
+
+    if (codePromo) {
+      try {
+        const codePromoVerifie = await CodePromo.findOne({ 
+          code: codePromo.toUpperCase(),
+          statut: 'actif'
+        });
+
+        if (codePromoVerifie && codePromoVerifie.isValid()) {
+          // Vérifier si applicable à la chambre
+          if (!codePromoVerifie.applicableToAll && 
+              !codePromoVerifie.chambres.includes(chambreId)) {
+            console.log('⚠️ Code promo non applicable à cette chambre');
+          } else {
+            // Vérifier le séjour minimum
+            if (nights >= codePromoVerifie.minimumStay) {
+              // Calculer le prix réduit
+              prixFinal = codePromoVerifie.calculateReducedPrice(totalAmount);
+              reduction = totalAmount - prixFinal;
+              codePromoApplique = codePromoVerifie._id;
+              
+              console.log('✅ Code promo appliqué:', {
+                code: codePromo,
+                reduction,
+                prixFinal,
+                prixOriginal: totalAmount
+              });
+
+              // Incrémenter le compteur d'utilisation
+              codePromoVerifie.utilisationActuelle += 1;
+              await codePromoVerifie.save();
+            } else {
+              console.log('⚠️ Séjour trop court pour ce code promo');
+            }
+          }
+        } else {
+          console.log('⚠️ Code promo invalide ou expiré');
+        }
+      } catch (error) {
+        console.warn('⚠️ Erreur vérification code promo:', error);
+      }
+    }
+
     const reservationData = {
       client: req.user._id,
       chambre: chambreId,
@@ -89,17 +139,22 @@ exports.createReservation = async (req, res) => {
       adults: parseInt(adults || 1),
       children: parseInt(children || 0),
       specialRequests: specialRequests || '',
-      totalAmount,
+      totalAmount: prixFinal, // ✅ Prix final après réduction
       currency: 'XAF',
       paymentMethod: paymentMethod || 'card',
-      // ✅ NOUVEAUX CHAMPS
+      // ✅ Options de paiement
       paymentOption: paymentOption || 'full',
       nightsToPay: calculatedNightsToPay,
-      amountPaid: totalAmount,
+      amountPaid: prixFinal,
       status: 'pending_payment',
       source: 'website',
+      // ✅ Champs code promo
+      codePromo: codePromoApplique,
+      prixOriginal: prixOriginal,
+      reductionAppliquee: reduction,
+      codePromoUtilise: codePromo,
       paiement: {
-        amount: totalAmount,
+        amount: prixFinal,
         currency: 'XAF',
         method: paymentMethod || 'card',
         status: 'pending',
@@ -121,7 +176,13 @@ exports.createReservation = async (req, res) => {
       success: true,
       message: 'Réservation créée avec succès. Redirection vers le paiement.',
       reservation,
-      payment: paymentData
+      payment: paymentData,
+      // ✅ NOUVEAU : Informations sur la réduction
+      reduction: reduction > 0 ? {
+        appliquee: true,
+        montant: reduction,
+        code: codePromo
+      } : { appliquee: false }
     });
 
   } catch (error) {
@@ -147,15 +208,17 @@ exports.createReservationPublic = async (req, res) => {
       specialRequests,
       paymentMethod,
       clientInfo,
-      paymentOption, // ✅ NOUVEAU : Option de paiement
-      nightsToPay    // ✅ NOUVEAU : Nuits à payer
+      paymentOption, // ✅ Option de paiement
+      nightsToPay,   // ✅ Nuits à payer
+      codePromo      // ✅ NOUVEAU : Code promo
     } = req.body;
 
     console.log('🔹 Création réservation publique:', { 
       chambreId, 
       clientInfo,
       paymentOption,
-      nightsToPay 
+      nightsToPay,
+      codePromo 
     });
 
     // Validation des données requises
@@ -206,7 +269,7 @@ exports.createReservationPublic = async (req, res) => {
     const checkOutDate = new Date(checkOut);
     const calculatedNights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
     
-    // ✅ NOUVEAU : Calcul dynamique du montant selon l'option de paiement
+    // ✅ Calcul dynamique du montant selon l'option de paiement
     let calculatedTotalAmount;
     let calculatedNightsToPay = nightsToPay || calculatedNights;
     
@@ -230,6 +293,54 @@ exports.createReservationPublic = async (req, res) => {
         break;
     }
 
+    // ✅ NOUVEAU : Gestion du code promo
+    let prixFinal = calculatedTotalAmount;
+    let codePromoApplique = null;
+    let reduction = 0;
+    let prixOriginal = calculatedTotalAmount;
+
+    if (codePromo) {
+      try {
+        const codePromoVerifie = await CodePromo.findOne({ 
+          code: codePromo.toUpperCase(),
+          statut: 'actif'
+        });
+
+        if (codePromoVerifie && codePromoVerifie.isValid()) {
+          // Vérifier si applicable à la chambre
+          if (!codePromoVerifie.applicableToAll && 
+              !codePromoVerifie.chambres.includes(chambreId)) {
+            console.log('⚠️ Code promo non applicable à cette chambre');
+          } else {
+            // Vérifier le séjour minimum
+            if (calculatedNights >= codePromoVerifie.minimumStay) {
+              // Calculer le prix réduit
+              prixFinal = codePromoVerifie.calculateReducedPrice(calculatedTotalAmount);
+              reduction = calculatedTotalAmount - prixFinal;
+              codePromoApplique = codePromoVerifie._id;
+              
+              console.log('✅ Code promo appliqué:', {
+                code: codePromo,
+                reduction,
+                prixFinal,
+                prixOriginal: calculatedTotalAmount
+              });
+
+              // Incrémenter le compteur d'utilisation
+              codePromoVerifie.utilisationActuelle += 1;
+              await codePromoVerifie.save();
+            } else {
+              console.log('⚠️ Séjour trop court pour ce code promo');
+            }
+          }
+        } else {
+          console.log('⚠️ Code promo invalide ou expiré');
+        }
+      } catch (error) {
+        console.warn('⚠️ Erreur vérification code promo:', error);
+      }
+    }
+
     // Créer la réservation publique
     const reservationData = {
       chambre: chambreId,
@@ -239,19 +350,24 @@ exports.createReservationPublic = async (req, res) => {
       children: children || 0,
       guests: guests || (parseInt(adults || 1) + parseInt(children || 0)),
       specialRequests: specialRequests || '',
-      totalAmount: calculatedTotalAmount,
+      totalAmount: prixFinal, // ✅ Prix final après réduction
       currency: 'XAF',
       nights: calculatedNights,
-      // ✅ NOUVEAUX CHAMPS
+      // ✅ Options de paiement
       paymentOption: paymentOption || 'full',
       nightsToPay: calculatedNightsToPay,
-      amountPaid: calculatedTotalAmount,
+      amountPaid: prixFinal,
       status: 'pending_payment',
       paymentMethod: paymentMethod || 'card',
       clientInfo: clientInfo,
       source: 'public_website',
+      // ✅ Champs code promo
+      codePromo: codePromoApplique,
+      prixOriginal: prixOriginal,
+      reductionAppliquee: reduction,
+      codePromoUtilise: codePromo,
       paiement: {
-        amount: calculatedTotalAmount,
+        amount: prixFinal,
         currency: 'XAF',
         method: paymentMethod || 'card',
         status: 'pending',
@@ -282,7 +398,13 @@ exports.createReservationPublic = async (req, res) => {
         payment: {
           mockMode: true,
           ...mockParams
-        }
+        },
+        // ✅ NOUVEAU : Informations sur la réduction
+        reduction: reduction > 0 ? {
+          appliquee: true,
+          montant: reduction,
+          code: codePromo
+        } : { appliquee: false }
       });
     }
 
@@ -297,7 +419,13 @@ exports.createReservationPublic = async (req, res) => {
       payment: {
         form_action: paymentUrl,
         form_data: paymentParams
-      }
+      },
+      // ✅ NOUVEAU : Informations sur la réduction
+      reduction: reduction > 0 ? {
+        appliquee: true,
+        montant: reduction,
+        code: codePromo
+      } : { appliquee: false }
     });
 
   } catch (error) {
@@ -326,9 +454,12 @@ function preparePaymentData(reservation, user = null, clientInfo = null) {
     checkOut: new Date(reservation.checkOut).toISOString().split('T')[0],
     roomName: reservation.chambre?.name || 'Chambre',
     nights: reservation.nights || 1,
-    // ✅ NOUVEAU : Informations sur l'option de paiement
+    // ✅ Informations sur l'option de paiement
     paymentOption: reservation.paymentOption,
-    nightsToPay: reservation.nightsToPay
+    nightsToPay: reservation.nightsToPay,
+    // ✅ NOUVEAU : Informations sur la réduction
+    codePromo: reservation.codePromoUtilise,
+    reduction: reservation.reductionAppliquee || 0
   };
 }
 
@@ -356,7 +487,7 @@ exports.paymentCallback = async (req, res) => {
 
     // Traiter la décision de paiement
     if (decision === 'ACCEPT') {
-      // ✅ NOUVEAU : Déterminer le statut selon l'option de paiement
+      // ✅ Déterminer le statut selon l'option de paiement
       let reservationStatus = 'confirmed';
       if (reservation.paymentOption !== 'full') {
         reservationStatus = 'partially_paid';
@@ -373,6 +504,15 @@ exports.paymentCallback = async (req, res) => {
       console.log('✅ Paiement confirmé pour réservation:', reservationId);
       console.log('💰 Option de paiement:', reservation.paymentOption);
       console.log('🌙 Nuits payées:', reservation.nightsToPay, '/', reservation.nights);
+      
+      // ✅ NOUVEAU : Log de la réduction si applicable
+      if (reservation.reductionAppliquee > 0) {
+        console.log('🎉 Réduction appliquée:', {
+          code: reservation.codePromoUtilise,
+          montant: reservation.reductionAppliquee,
+          prixFinal: reservation.totalAmount
+        });
+      }
       
       return res.redirect(`${process.env.FRONTEND_URL}/payment/success?reservation=${reservationId}`);
     } else {
@@ -402,10 +542,12 @@ exports.getReservations = async (req, res) => {
     if (req.user.role === 'admin') {
       reservations = await Reservation.find()
         .populate('client', 'name surname email phone')
-        .populate('chambre', 'number name type price currency');
+        .populate('chambre', 'number name type price currency')
+        .populate('codePromo', 'code description'); // ✅ NOUVEAU : Populer code promo
     } else {
       reservations = await Reservation.find({ client: req.user._id })
-        .populate('chambre', 'number name type price currency images');
+        .populate('chambre', 'number name type price currency images')
+        .populate('codePromo', 'code description'); // ✅ NOUVEAU : Populer code promo
     }
 
     res.json({
@@ -429,7 +571,8 @@ exports.getReservationById = async (req, res) => {
   try {
     const reservation = await Reservation.findById(req.params.id)
       .populate('client', 'name surname email phone')
-      .populate('chambre', 'number name type price currency images amenities');
+      .populate('chambre', 'number name type price currency images amenities')
+      .populate('codePromo', 'code description type value'); // ✅ NOUVEAU : Populer code promo
 
     if (!reservation) {
       return res.status(404).json({
@@ -485,7 +628,7 @@ exports.updateReservation = async (req, res) => {
       req.params.id,
       req.body,
       { new: true, runValidators: true }
-    ).populate('client chambre');
+    ).populate('client chambre codePromo'); // ✅ NOUVEAU : Populer code promo
 
     res.json({
       success: true,
@@ -508,7 +651,8 @@ exports.cancelReservation = async (req, res) => {
   try {
     const reservation = await Reservation.findById(req.params.id)
       .populate('client', 'email name')
-      .populate('chambre');
+      .populate('chambre')
+      .populate('codePromo'); // ✅ NOUVEAU : Populer code promo
 
     if (!reservation) {
       return res.status(404).json({
@@ -573,6 +717,97 @@ exports.confirmReservation = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la confirmation de la réservation',
+      error: error.message
+    });
+  }
+};
+
+// ✅ NOUVELLE FONCTION : Supprimer définitivement une réservation
+exports.deleteReservation = async (req, res) => {
+  try {
+    const reservation = await Reservation.findById(req.params.id);
+
+    if (!reservation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Réservation non trouvée'
+      });
+    }
+
+    // Vérifier les permissions (admin uniquement)
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès non autorisé. Droits administrateur requis pour supprimer une réservation.'
+      });
+    }
+
+    // Vérifier si la réservation peut être supprimée
+    const protectedStatuses = ['confirmed', 'completed', 'partially_paid'];
+    if (protectedStatuses.includes(reservation.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Impossible de supprimer une réservation avec le statut "${reservation.status}". Vous pouvez seulement l'annuler.`
+      });
+    }
+
+    // Supprimer la réservation
+    await Reservation.findByIdAndDelete(req.params.id);
+
+    res.json({
+      success: true,
+      message: 'Réservation supprimée définitivement avec succès'
+    });
+
+  } catch (error) {
+    console.error('❌ Erreur suppression réservation:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la suppression de la réservation',
+      error: error.message
+    });
+  }
+};
+
+// ✅ NOUVELLE FONCTION : Statistiques des codes promo utilisés
+exports.getPromoCodeStats = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès non autorisé. Droits administrateur requis.'
+      });
+    }
+
+    const stats = await Reservation.aggregate([
+      {
+        $match: {
+          codePromoUtilise: { $exists: true, $ne: null }
+        }
+      },
+      {
+        $group: {
+          _id: '$codePromoUtilise',
+          count: { $sum: 1 },
+          totalReduction: { $sum: '$reductionAppliquee' },
+          totalRevenue: { $sum: '$totalAmount' }
+        }
+      },
+      {
+        $sort: { count: -1 }
+      }
+    ]);
+
+    res.json({
+      success: true,
+      stats
+    });
+
+  } catch (error) {
+    console.error('❌ Erreur statistiques codes promo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des statistiques',
       error: error.message
     });
   }

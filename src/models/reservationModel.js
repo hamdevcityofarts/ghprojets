@@ -22,7 +22,7 @@ const paiementSchema = new mongoose.Schema({
   gateway: { type: String, default: 'cybersource_secure_acceptance' }
 });
 
-// 🔹 Schema principal Réservation - MIS À JOUR
+// 🔹 Schema principal Réservation - MIS À JOUR AVEC CODES PROMO
 const reservationSchema = new mongoose.Schema(
   {
     client: { 
@@ -87,6 +87,22 @@ const reservationSchema = new mongoose.Schema(
       type: String,
       enum: ['website', 'public_website', 'admin'],
       default: 'website'
+    },
+
+    // ✅ NOUVEAUX CHAMPS : Codes promotionnels
+    codePromo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CodePromo'
+    },
+    prixOriginal: {
+      type: Number
+    },
+    reductionAppliquee: {
+      type: Number,
+      default: 0
+    },
+    codePromoUtilise: {
+      type: String
     }
   },
   { 
@@ -99,6 +115,7 @@ reservationSchema.index({ chambre: 1, checkIn: 1, checkOut: 1 });
 reservationSchema.index({ status: 1 });
 reservationSchema.index({ client: 1 });
 reservationSchema.index({ 'clientInfo.email': 1 });
+reservationSchema.index({ codePromoUtilise: 1 }); // ✅ Nouvel index pour codes promo
 
 // ✅ METHODE pour calculer les nuits automatiquement
 reservationSchema.methods.calculateNights = function() {
@@ -145,6 +162,21 @@ reservationSchema.methods.getNightsToPay = function() {
     default:
       return totalNights;
   }
+};
+
+// ✅ NOUVELLE METHODE : Appliquer une réduction de code promo
+reservationSchema.methods.applyCodePromo = function(codePromoData, prixOriginal) {
+  this.codePromo = codePromoData._id;
+  this.codePromoUtilise = codePromoData.code;
+  this.prixOriginal = prixOriginal;
+  this.reductionAppliquee = prixOriginal - codePromoData.prixReduit;
+  this.totalAmount = codePromoData.prixReduit;
+  
+  console.log('💰 Réduction appliquée:', {
+    code: codePromoData.code,
+    reduction: this.reductionAppliquee,
+    prixFinal: this.totalAmount
+  });
 };
 
 // ✅ MIDDLEWARE pour calcul automatique des nuits avant sauvegarde

@@ -18,7 +18,7 @@ const {
 
 /**
  * @swagger
- * /utilisateurs:
+ * /api/utilisateurs:
  *   post:
  *     summary: Créer un nouvel utilisateur
  *     description: Accessible uniquement aux administrateurs
@@ -116,7 +116,7 @@ const {
 
 /**
  * @swagger
- * /utilisateurs/{id}:
+ * /api/utilisateurs/{id}:
  *   get:
  *     summary: Récupérer un utilisateur par ID
  *     description: Permet à l'administrateur de consulter les informations d'un utilisateur spécifique
@@ -206,7 +206,7 @@ const {
  *         description: Utilisateur introuvable
  */
 
-// Routes
+// Routes CORRIGÉES - chemins racine seulement
 router.route('/')
   .post(protect, admin, createUser)
   .get(protect, admin, getUsers);

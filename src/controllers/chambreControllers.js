@@ -1,12 +1,11 @@
 const Chambre = require('../models/chambreModel');
 const { deleteFromCloudinary } = require('../middlewares/uploadMiddleware');
 
-// ✅ CRÉATION SIMPLIFIÉE - ACCEPTE URLs DIRECTES CLOUDINARY
+// ✅ CRÉATION - PRIX EXACT SANS RÉDUCTION
 exports.createChambre = async (req, res) => {
   try {
-    console.log('📥 Données reçues (URLs Cloudinary):', req.body);
+    console.log('📥 Données reçues:', req.body);
 
-    // ✅ PLUS BESOIN DE MULTER - les images viennent déjà en URLs
     const { 
       number, 
       name, 
@@ -19,7 +18,7 @@ exports.createChambre = async (req, res) => {
       status, 
       description, 
       amenities,
-      images // ✅ URLs Cloudinary directement du frontend
+      images
     } = req.body;
 
     // ✅ Vérifier si le numéro existe déjà
@@ -31,26 +30,28 @@ exports.createChambre = async (req, res) => {
       });
     }
 
-    // ✅ CRÉER LA CHAMBRE DIRECTEMENT AVEC LES URLs CLOUDINARY
+    // 🔒 CRÉER LA CHAMBRE AVEC PRIX EXACT (aucun champ de réduction)
     const chambre = await Chambre.create({
       number,
       name,
       type,
       category,
       capacity: parseInt(capacity),
-      price: parseFloat(price),
+      price: parseFloat(price), // ✅ PRIX EXACT UNIQUEMENT
       currency: 'XAF',
       size,
       bedType,
       status: status || 'disponible',
       description,
       amenities: Array.isArray(amenities) ? amenities : (amenities ? [amenities] : []),
-      images: images || [] // ✅ URLs Cloudinary directement
+      images: images || []
+      // 🔒 PAS DE: discountedPrice, discountPercentage, hasDiscount, applyDiscount, originalPrice
     });
 
-    console.log('✅ Chambre créée avec URLs Cloudinary:', {
+    console.log('✅ Chambre créée avec prix exact:', {
       id: chambre._id,
       number: chambre.number,
+      price: chambre.price, // Prix exact
       images: chambre.images.length
     });
 
@@ -115,7 +116,7 @@ exports.getChambreById = async (req, res) => {
   }
 };
 
-// ✅ MISE À JOUR SIMPLIFIÉE
+// ✅ MISE À JOUR - PRIX EXACT SANS RÉDUCTION
 exports.updateChambre = async (req, res) => {
   try {
     const chambre = await Chambre.findById(req.params.id);
@@ -127,13 +128,22 @@ exports.updateChambre = async (req, res) => {
       });
     }
 
-    // ✅ METTRE À JOUR DIRECTEMENT AVEC LES DONNÉES JSON
-    Object.assign(chambre, req.body);
+    // 🔒 NETTOYER LES DONNÉES AVANT UPDATE (supprimer champs de réduction)
+    const cleanData = { ...req.body };
+    delete cleanData.discountedPrice;
+    delete cleanData.discountPercentage;
+    delete cleanData.hasDiscount;
+    delete cleanData.applyDiscount;
+    delete cleanData.originalPrice;
+
+    // ✅ Mettre à jour uniquement les champs autorisés
+    Object.assign(chambre, cleanData);
     await chambre.save();
 
-    console.log('✅ Chambre mise à jour avec URLs Cloudinary:', {
+    console.log('✅ Chambre mise à jour avec prix exact:', {
       id: chambre._id,
       number: chambre.number,
+      price: chambre.price, // Prix exact
       images: chambre.images.length
     });
 
@@ -174,7 +184,6 @@ exports.deleteChambre = async (req, res) => {
           }
         } catch (error) {
           console.error('⚠️ Erreur suppression Cloudinary:', error);
-          // Continue même si la suppression échoue
         }
       }
     }
@@ -198,7 +207,7 @@ exports.deleteChambre = async (req, res) => {
   }
 };
 
-// ✅ UPLOAD UNIQUE (POUR AUTRES USAGES)
+// ✅ UPLOAD UNIQUE
 exports.uploadImage = async (req, res) => {
   try {
     if (!req.file) {
@@ -208,7 +217,6 @@ exports.uploadImage = async (req, res) => {
       });
     }
 
-    // ✅ Cloudinary retourne l'URL dans req.file.path
     const imageUrl = req.file.path;
     const cloudinaryId = req.file.filename;
 
@@ -235,7 +243,7 @@ exports.uploadImage = async (req, res) => {
   }
 };
 
-// ✅ UPLOAD MULTIPLE (POUR AUTRES USAGES)
+// ✅ UPLOAD MULTIPLE
 exports.uploadMultipleImages = async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -246,7 +254,7 @@ exports.uploadMultipleImages = async (req, res) => {
     }
 
     const uploadedImages = req.files.map(file => ({
-      url: file.path, // URL Cloudinary
+      url: file.path,
       cloudinaryId: file.filename
     }));
 
@@ -267,12 +275,11 @@ exports.uploadMultipleImages = async (req, res) => {
   }
 };
 
-// ✅ SUPPRESSION IMAGE (POUR AUTRES USAGES)
+// ✅ SUPPRESSION IMAGE
 exports.deleteImage = async (req, res) => {
   try {
     const { filename } = req.params;
 
-    // ✅ Supprimer de Cloudinary
     try {
       const publicId = `grand-hotel/rooms/${filename}`;
       await deleteFromCloudinary(`https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/${publicId}`);
@@ -281,7 +288,6 @@ exports.deleteImage = async (req, res) => {
       console.error('⚠️ Erreur suppression Cloudinary:', error);
     }
 
-    // ✅ Retirer de la base de données
     await Chambre.updateMany(
       { 'images.cloudinaryId': filename },
       { $pull: { images: { cloudinaryId: filename } } }
