@@ -691,4 +691,47 @@ router.post('/payment/callback', reservationController.paymentCallback);
  */
 router.put('/:id/annuler', protect, reservationController.cancelReservation);
 
+/**
+ * @swagger
+ * /api/reservations/user/{userId}:
+ *   get:
+ *     summary: Récupérer les réservations d'un utilisateur spécifique (admin uniquement)
+ *     tags: [Reservations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID de l'utilisateur
+ *     responses:
+ *       200:
+ *         description: Réservations de l'utilisateur récupérées avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 count:
+ *                   type: number
+ *                   example: 3
+ *                 reservations:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Reservation'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       500:
+ *         description: Erreur serveur
+ */
+router.get('/user/:userId', protect, admin, reservationController.getUserReservations);
+
+
 module.exports = router;
