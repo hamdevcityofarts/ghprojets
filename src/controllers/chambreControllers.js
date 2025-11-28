@@ -1,10 +1,10 @@
 const Chambre = require('../models/chambreModel');
 const { deleteFromCloudinary } = require('../middlewares/uploadMiddleware');
 
-// ✅ CRÉATION - PRIX EXACT SANS RÉDUCTION
+// ✅ CRÉATION - AVEC VALIDATION COMPLÈTE
 exports.createChambre = async (req, res) => {
   try {
-    console.log('📥 Données reçues:', req.body);
+    console.log('📥 Création chambre - Données reçues:', req.body);
 
     const { 
       number, 
@@ -21,38 +21,47 @@ exports.createChambre = async (req, res) => {
       images
     } = req.body;
 
-    // ✅ Vérifier si le numéro existe déjà
+    // ✅ VALIDATION REQUISE
+    if (!number || !name || !type || !capacity || !price) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Champs requis manquants: number, name, type, capacity, price' 
+      });
+    }
+
+    // ✅ VÉRIFIER SI LE NUMÉRO EXISTE DÉJÀ
     const existing = await Chambre.findOne({ number });
     if (existing) {
       return res.status(400).json({ 
         success: false,
-        message: 'Une chambre avec ce numéro existe déjà' 
+        message: `Chambre #${number} existe déjà` 
       });
     }
 
-    // 🔒 CRÉER LA CHAMBRE AVEC PRIX EXACT (aucun champ de réduction)
+    // 🔒 CRÉER LA CHAMBRE
     const chambre = await Chambre.create({
       number,
       name,
       type,
-      category,
+      category: category || 'standard',
       capacity: parseInt(capacity),
-      price: parseFloat(price), // ✅ PRIX EXACT UNIQUEMENT
+      price: parseFloat(price),
       currency: 'XAF',
-      size,
-      bedType,
+      size: size || 0,
+      bedType: bedType || 'lit simple',
       status: status || 'disponible',
-      description,
+      description: description || '',
       amenities: Array.isArray(amenities) ? amenities : (amenities ? [amenities] : []),
-      images: images || []
-      // 🔒 PAS DE: discountedPrice, discountPercentage, hasDiscount, applyDiscount, originalPrice
+      images: images || [],
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
     });
 
-    console.log('✅ Chambre créée avec prix exact:', {
+    console.log('✅ Chambre créée:', {
       id: chambre._id,
       number: chambre.number,
-      price: chambre.price, // Prix exact
-      images: chambre.images.length
+      price: chambre.price
     });
 
     res.status(201).json({
@@ -60,117 +69,135 @@ exports.createChambre = async (req, res) => {
       message: 'Chambre créée avec succès',
       chambre
     });
+
   } catch (err) {
-    console.error('❌ Erreur création chambre:', err);
+    console.error('❌ Erreur création chambre:', err.message);
     res.status(500).json({ 
       success: false,
       message: 'Erreur lors de la création de la chambre',
-      error: err.message 
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
 
-// ✅ RÉCUPÉRATION DES CHAMBRES
+// ✅ RÉCUPÉRATION - TOUTES LES CHAMBRES
 exports.getChambres = async (req, res) => {
   try {
-    const chambres = await Chambre.find({ isActive: true });
+    console.log('📤 Récupération des chambres');
+
+    const chambres = await Chambre.find({ isActive: true }).sort({ number: 1 });
     
-    res.json({
+    console.log(`✅ ${chambres.length} chambre(s) trouvée(s)`);
+
+    res.status(200).json({
       success: true,
       count: chambres.length,
       chambres
     });
+
   } catch (err) {
-    console.error('❌ Erreur récupération chambres:', err);
+    console.error('❌ Erreur récupération chambres:', err.message);
     res.status(500).json({ 
       success: false,
       message: 'Erreur lors de la récupération des chambres',
-      error: err.message 
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
 
-// ✅ RÉCUPÉRATION D'UNE CHAMBRE PAR ID
+// ✅ RÉCUPÉRATION - PAR ID
 exports.getChambreById = async (req, res) => {
   try {
-    const chambre = await Chambre.findById(req.params.id);
+    const { id } = req.params;
+    console.log(`🔍 Recherche chambre: ${id}`);
+
+    const chambre = await Chambre.findById(id);
     
     if (!chambre) {
       return res.status(404).json({ 
         success: false,
-        message: 'Chambre non trouvée' 
+        message: `Chambre avec l'ID ${id} non trouvée` 
       });
     }
 
-    res.json({
+    console.log(`✅ Chambre trouvée: #${chambre.number}`);
+
+    res.status(200).json({
       success: true,
       chambre
     });
+
   } catch (err) {
-    console.error('❌ Erreur récupération chambre:', err);
+    console.error('❌ Erreur récupération chambre:', err.message);
     res.status(500).json({ 
       success: false,
       message: 'Erreur lors de la récupération de la chambre',
-      error: err.message 
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
 
-// ✅ MISE À JOUR - PRIX EXACT SANS RÉDUCTION
+// ✅ MISE À JOUR - AVEC VALIDATION
 exports.updateChambre = async (req, res) => {
   try {
-    const chambre = await Chambre.findById(req.params.id);
+    const { id } = req.params;
+    console.log(`📝 Mise à jour chambre: ${id}`, req.body);
+
+    const chambre = await Chambre.findById(id);
     
     if (!chambre) {
       return res.status(404).json({ 
         success: false,
-        message: 'Chambre non trouvée' 
+        message: `Chambre avec l'ID ${id} non trouvée` 
       });
     }
 
-    // 🔒 NETTOYER LES DONNÉES AVANT UPDATE (supprimer champs de réduction)
+    // 🔒 NETTOYER LES DONNÉES (supprimer champs indésirables)
     const cleanData = { ...req.body };
-    delete cleanData.discountedPrice;
-    delete cleanData.discountPercentage;
-    delete cleanData.hasDiscount;
-    delete cleanData.applyDiscount;
-    delete cleanData.originalPrice;
+    delete cleanData._id;
+    delete cleanData.createdAt;
+    delete cleanData.__v;
 
-    // ✅ Mettre à jour uniquement les champs autorisés
-    Object.assign(chambre, cleanData);
-    await chambre.save();
+    // ✅ METTRE À JOUR
+    const updated = await Chambre.findByIdAndUpdate(
+      id,
+      { ...cleanData, updatedAt: new Date() },
+      { new: true, runValidators: true }
+    );
 
-    console.log('✅ Chambre mise à jour avec prix exact:', {
-      id: chambre._id,
-      number: chambre.number,
-      price: chambre.price, // Prix exact
-      images: chambre.images.length
+    console.log('✅ Chambre mise à jour:', {
+      id: updated._id,
+      number: updated.number
     });
 
-    res.json({
+    res.status(200).json({
       success: true,
       message: 'Chambre mise à jour avec succès',
-      chambre
+      chambre: updated
     });
+
   } catch (err) {
-    console.error('❌ Erreur mise à jour chambre:', err);
+    console.error('❌ Erreur mise à jour chambre:', err.message);
     res.status(500).json({ 
       success: false,
       message: 'Erreur lors de la mise à jour de la chambre',
-      error: err.message 
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
 
-// ✅ SUPPRESSION AVEC NETTOYAGE CLOUDINARY
+// ✅ SUPPRESSION - AVEC NETTOYAGE CLOUDINARY
 exports.deleteChambre = async (req, res) => {
   try {
-    const chambre = await Chambre.findById(req.params.id);
+    const { id } = req.params;
+    console.log(`🗑️ Suppression chambre: ${id}`);
+
+    const chambre = await Chambre.findById(id);
     
     if (!chambre) {
       return res.status(404).json({ 
         success: false,
-        message: 'Chambre non trouvée' 
+        message: `Chambre avec l'ID ${id} non trouvée` 
       });
     }
 
@@ -180,34 +207,37 @@ exports.deleteChambre = async (req, res) => {
         try {
           if (image.cloudinaryId) {
             await deleteFromCloudinary(image.url);
-            console.log('✅ Image Cloudinary supprimée:', image.cloudinaryId);
+            console.log(`✅ Image Cloudinary supprimée: ${image.cloudinaryId}`);
           }
         } catch (error) {
-          console.error('⚠️ Erreur suppression Cloudinary:', error);
+          console.error('⚠️ Erreur suppression Cloudinary:', error.message);
         }
       }
     }
 
+    // ✅ SOFT DELETE (marquer comme inactif)
     chambre.isActive = false;
+    chambre.updatedAt = new Date();
     await chambre.save();
 
-    console.log('✅ Chambre supprimée:', chambre.number);
+    console.log(`✅ Chambre #${chambre.number} supprimée`);
 
-    res.json({
+    res.status(200).json({
       success: true,
       message: 'Chambre supprimée avec succès'
     });
+
   } catch (err) {
-    console.error('❌ Erreur suppression chambre:', err);
+    console.error('❌ Erreur suppression chambre:', err.message);
     res.status(500).json({ 
       success: false,
       message: 'Erreur lors de la suppression de la chambre',
-      error: err.message 
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
 
-// ✅ UPLOAD UNIQUE
+// ✅ UPLOAD IMAGE UNIQUE
 exports.uploadImage = async (req, res) => {
   try {
     if (!req.file) {
@@ -220,12 +250,9 @@ exports.uploadImage = async (req, res) => {
     const imageUrl = req.file.path;
     const cloudinaryId = req.file.filename;
 
-    console.log('✅ Image uploadée sur Cloudinary:', {
-      cloudinaryId,
-      url: imageUrl
-    });
+    console.log('✅ Image uploadée:', { cloudinaryId, url: imageUrl });
 
-    res.json({
+    res.status(200).json({
       success: true,
       message: 'Image uploadée avec succès',
       image: {
@@ -233,12 +260,13 @@ exports.uploadImage = async (req, res) => {
         cloudinaryId: cloudinaryId
       }
     });
+
   } catch (err) {
-    console.error('❌ Erreur upload image:', err);
+    console.error('❌ Erreur upload image:', err.message);
     res.status(500).json({ 
       success: false,
       message: 'Erreur lors de l\'upload de l\'image',
-      error: err.message 
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
@@ -258,19 +286,20 @@ exports.uploadMultipleImages = async (req, res) => {
       cloudinaryId: file.filename
     }));
 
-    console.log('✅ Images uploadées sur Cloudinary:', uploadedImages.length);
+    console.log(`✅ ${uploadedImages.length} image(s) uploadée(s)`);
 
-    res.json({
+    res.status(200).json({
       success: true,
       message: `${req.files.length} image(s) uploadée(s) avec succès`,
       images: uploadedImages
     });
+
   } catch (err) {
-    console.error('❌ Erreur upload multiple images:', err);
+    console.error('❌ Erreur upload multiple:', err.message);
     res.status(500).json({ 
       success: false,
       message: 'Erreur lors de l\'upload des images',
-      error: err.message 
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
@@ -279,13 +308,13 @@ exports.uploadMultipleImages = async (req, res) => {
 exports.deleteImage = async (req, res) => {
   try {
     const { filename } = req.params;
+    console.log(`🗑️ Suppression image: ${filename}`);
 
     try {
-      const publicId = `grand-hotel/rooms/${filename}`;
-      await deleteFromCloudinary(`https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/${publicId}`);
-      console.log(`✅ Image Cloudinary supprimée: ${publicId}`);
+      await deleteFromCloudinary(`https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/grand-hotel/rooms/${filename}`);
+      console.log(`✅ Image Cloudinary supprimée`);
     } catch (error) {
-      console.error('⚠️ Erreur suppression Cloudinary:', error);
+      console.error('⚠️ Erreur Cloudinary:', error.message);
     }
 
     await Chambre.updateMany(
@@ -293,16 +322,17 @@ exports.deleteImage = async (req, res) => {
       { $pull: { images: { cloudinaryId: filename } } }
     );
 
-    res.json({
+    res.status(200).json({
       success: true,
       message: 'Image supprimée avec succès'
     });
+
   } catch (err) {
-    console.error('❌ Erreur suppression image:', err);
+    console.error('❌ Erreur suppression image:', err.message);
     res.status(500).json({ 
       success: false,
       message: 'Erreur lors de la suppression de l\'image',
-      error: err.message 
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
