@@ -203,7 +203,7 @@ exports.createReservation = async (req, res) => {
 };
 
 // -----------------------------------------------------------
-// 🌍 Nouvelle Fonction de Réservation Publique (Public/Guest)
+// 🌍 Nouvelle Fonction de Réservation Publique (Public/Guest) - CORRIGÉE
 // -----------------------------------------------------------
 
 /**
@@ -262,7 +262,7 @@ exports.createReservationPublic = async (req, res) => {
 
     // --- Calcul dynamique du montant (Identique à la fonction auth) ---
     let totalAmount, calculatedNightsToPay;
-    // ... (Logique de calcul du montant et nightsToPay) ...
+    
     switch (paymentOption) {
       case 'first-night':
         totalAmount = chambre.price;
@@ -287,7 +287,6 @@ exports.createReservationPublic = async (req, res) => {
     let prixOriginal = totalAmount;
 
     if (codePromo) {
-      // ... (Logique de vérification et application du code promo) ...
       try {
         const codePromoVerifie = await CodePromo.findOne({
           code: codePromo.toUpperCase(),
@@ -312,26 +311,28 @@ exports.createReservationPublic = async (req, res) => {
       }
     }
     
-    // --- Gestion du Client (Récupérer ou Créer un utilisateur temporaire/Invité) ---
-    // Si vous voulez enregistrer l'invité:
-    let guestUser = await User.findOne({ email: clientInfo.email });
+    // --- CORRECTION CRITIQUE : Gestion du Client avec rôle VALIDE ---
+    let guestUser = await User.findOne({ email: clientInfo.email.toLowerCase() });
     
     if (!guestUser) {
-      // Si l'utilisateur n'existe pas, créez un compte "guest" temporaire
+      // CORRECTION : Utiliser 'client' au lieu de 'guest' qui n'est pas dans l'enum
       guestUser = await User.create({
-        name: clientInfo.name,
-        surname: clientInfo.surname,
-        email: clientInfo.email,
+        name: clientInfo.name.trim(),
+        surname: clientInfo.surname.trim(),
+        email: clientInfo.email.toLowerCase().trim(),
         phone: clientInfo.phone || '',
         password: crypto.randomBytes(10).toString('hex'), // Mot de passe aléatoire
-        role: 'guest' // Rôle spécifique pour les invités
+        role: 'client', // ✅ CORRECTION : Utiliser 'client' au lieu de 'guest'
+        isTemporary: true // Champ optionnel pour identifier les comptes temporaires
       });
-      console.log('👤 Compte invité créé:', guestUser._id);
+      console.log('👤 Compte client temporaire créé:', guestUser._id, 'avec rôle:', guestUser.role);
+    } else {
+      console.log('👤 Client existant réutilisé:', guestUser._id, 'avec rôle:', guestUser.role);
     }
 
     // --- Création des données de réservation ---
     const reservationData = {
-      client: guestUser._id, // Utiliser l'ID du compte invité/temporaire
+      client: guestUser._id, // Utiliser l'ID du compte client temporaire
       chambre: chambreId,
       checkIn: checkInDate,
       checkOut: checkOutDate,
