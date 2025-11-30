@@ -34,6 +34,8 @@ const allowedOrigins = [
   'http://127.0.0.1:5173',
   'https://admin.grandhotelaeroport.site',
   'https://grandhotelaeroport.site',
+  'https://testsecureacceptance.cybersource.com',
+  'https://secureacceptance.cybersource.com',
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
