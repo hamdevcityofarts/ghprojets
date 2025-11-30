@@ -42,15 +42,24 @@ function preparePaymentData(reservation, user = null, clientInfo = null) {
     reduction: reservation.reductionAppliquee || 0
   };
 
-  // ✅ TENTATIVE DE GÉNÉRATION CYBERSOURCE
+  // ✅ TENTATIVE DE GÉNÉRATION CYBERSOURCE - AMÉLIORÉE
   try {
     console.log('🔹 Tentative de génération CyberSource...');
     
     // Vérifier si CybersourceSecure est disponible
     if (CybersourceSecure && typeof CybersourceSecure.generatePaymentForm === 'function') {
+      console.log('✅ Méthode generatePaymentForm disponible');
+      
       const cyberSourceData = CybersourceSecure.generatePaymentForm(basePaymentData);
       
-      if (cyberSourceData && cyberSourceData.form_data && cyberSourceData.form_action) {
+      console.log('🔍 Résultat génération CyberSource:', {
+        hasFormData: !!cyberSourceData.form_data,
+        hasFormAction: !!cyberSourceData.form_action,
+        hasCyberSource: cyberSourceData.hasCyberSource,
+        mockMode: cyberSourceData.mockMode || false
+      });
+      
+      if (cyberSourceData.form_data && cyberSourceData.form_action && cyberSourceData.hasCyberSource) {
         console.log('✅ Données CyberSource générées avec succès');
         return {
           ...basePaymentData,
@@ -58,14 +67,20 @@ function preparePaymentData(reservation, user = null, clientInfo = null) {
           form_action: cyberSourceData.form_action,
           hasCyberSource: true
         };
+      } else {
+        console.log('⚠️ Données CyberSource incomplètes, utilisation du fallback');
+        console.log('  Raison:', cyberSourceData.mockMode ? 'Mode simulation' : 'Données manquantes');
       }
+    } else {
+      console.log('❌ Méthode generatePaymentForm non disponible dans CybersourceSecure');
     }
     
     // ✅ FALLBACK - Retourner les données basiques sans CyberSource
-    console.log('⚠️ CyberSource non disponible - utilisation du fallback');
+    console.log('🔄 Utilisation du fallback de paiement local');
     return {
       ...basePaymentData,
-      hasCyberSource: false
+      hasCyberSource: false,
+      fallbackReason: 'CyberSource non configuré ou données incomplètes'
     };
     
   } catch (error) {
@@ -73,7 +88,8 @@ function preparePaymentData(reservation, user = null, clientInfo = null) {
     // ✅ FALLBACK EN CAS D'ERREUR
     return {
       ...basePaymentData,
-      hasCyberSource: false
+      hasCyberSource: false,
+      fallbackReason: `Erreur: ${error.message}`
     };
   }
 }
@@ -223,14 +239,22 @@ exports.createReservation = async (req, res) => {
     console.log('🔹 Données paiement préparées:', {
       hasCyberSource: paymentData.hasCyberSource,
       form_data_present: !!paymentData.form_data,
-      form_action_present: !!paymentData.form_action
+      form_action_present: !!paymentData.form_action,
+      fallbackReason: paymentData.fallbackReason || 'Aucun'
     });
+
+    // ✅ MESSAGE ADAPTATIF SELON LA DISPONIBILITÉ CYBERSOURCE
+    let message = '';
+    if (paymentData.hasCyberSource) {
+      message = 'Réservation créée avec succès. Redirection vers le paiement sécurisé.';
+    } else {
+      message = 'Réservation créée avec succès. Paiement à confirmer.';
+      console.log('ℹ️  Fallback activé:', paymentData.fallbackReason);
+    }
 
     res.status(201).json({
       success: true,
-      message: paymentData.hasCyberSource 
-        ? 'Réservation créée avec succès. Redirection vers le paiement.' 
-        : 'Réservation créée avec succès. Paiement à confirmer.',
+      message: message,
       reservation,
       payment: paymentData,
       reduction: reduction > 0 ? { appliquee: true, montant: reduction, code: codePromo } : { appliquee: false }
@@ -272,7 +296,7 @@ exports.createReservationPublic = async (req, res) => {
 
     // --- Vérification ClientInfo (Nécessaire pour les réservations publiques) ---
     if (!clientInfo || !clientInfo.email || !clientInfo.name || !clientInfo.surname) {
-      return res.status(404).json({ success: false, message: 'Informations client (name, surname, email) requises pour la réservation publique.' });
+      return res.status(400).json({ success: false, message: 'Informations client (name, surname, email) requises pour la réservation publique.' });
     }
 
     console.log('📥 Données reçues (Public):', req.body);
@@ -415,14 +439,22 @@ exports.createReservationPublic = async (req, res) => {
     console.log('🔹 Données paiement préparées (Public):', {
       hasCyberSource: paymentData.hasCyberSource,
       form_data_present: !!paymentData.form_data,
-      form_action_present: !!paymentData.form_action
+      form_action_present: !!paymentData.form_action,
+      fallbackReason: paymentData.fallbackReason || 'Aucun'
     });
+
+    // ✅ MESSAGE ADAPTATIF SELON LA DISPONIBILITÉ CYBERSOURCE
+    let message = '';
+    if (paymentData.hasCyberSource) {
+      message = 'Réservation publique créée avec succès. Redirection vers le paiement sécurisé.';
+    } else {
+      message = 'Réservation publique créée avec succès. Paiement à confirmer.';
+      console.log('ℹ️  Fallback activé (Public):', paymentData.fallbackReason);
+    }
 
     res.status(201).json({
       success: true,
-      message: paymentData.hasCyberSource 
-        ? 'Réservation publique créée avec succès. Redirection vers le paiement.' 
-        : 'Réservation publique créée avec succès. Paiement à confirmer.',
+      message: message,
       reservation,
       payment: paymentData,
       reduction: reduction > 0 ? { appliquee: true, montant: reduction, code: codePromo } : { appliquee: false }
