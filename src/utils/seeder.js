@@ -1,7 +1,7 @@
 // src/utils/seeder.js
 const User = require('../models/userModel');
 const Chambre = require('../models/chambreModel');
-const Reservation = require('../models/reservationModel'); // IMPORT AJOUTÉ
+const Reservation = require('../models/reservationModel');
 const dotenv = require('dotenv');
 
 dotenv.config();
@@ -67,24 +67,24 @@ const seedAdminUser = async () => {
   }
 };
 
-// ==================== FONCTION DE NETTOYAGE ====================
+// ==================== FONCTION DE NETTOYAGE (DÉSACTIVÉE) ====================
 const cleanDatabase = async () => {
   try {
-    console.log('🧹 Nettoyage de la base de données...');
+    console.log('🧹 NETTOYAGE DÉSACTIVÉ - Aucune donnée ne sera supprimée');
+    console.log('ℹ️  Cette fonction est désactivée en production pour préserver les données');
     
-    // Supprimer tous les utilisateurs sauf admin
-    const deletedUsers = await User.deleteMany({ 
-      email: { $ne: ADMIN_EMAIL } 
-    });
-    console.log(`✅ ${deletedUsers.deletedCount} utilisateurs supprimés`);
+    // ✅ CORRECTION : NE RIEN SUPPRIMER EN PRODUCTION
+    if (process.env.NODE_ENV === 'production') {
+      console.log('🚫 Mode production: suppression des données désactivée');
+      return {
+        deletedUsers: 0,
+        deletedRooms: 0,
+        deletedReservations: 0
+      };
+    }
     
-    // Supprimer toutes les chambres
-    const deletedRooms = await Chambre.deleteMany({});
-    console.log(`✅ ${deletedRooms.deletedCount} chambres supprimées`);
-    
-    // NOUVELLE LIGNE AJOUTÉE : Supprimer toutes les réservations
-    const deletedReservations = await Reservation.deleteMany({});
-    console.log(`✅ ${deletedReservations.deletedCount} réservations supprimées`);
+    // ❌ NE JAMAIS EXÉCUTER EN PRODUCTION
+    console.log('⚠️  ATTENTION: Cette opération supprimerait des données en développement uniquement');
     
   } catch (error) {
     console.error('❌ Erreur nettoyage:', error.message);
@@ -92,28 +92,48 @@ const cleanDatabase = async () => {
   }
 };
 
-// ==================== FONCTION DE RÉINITIALISATION COMPLÈTE ====================
+// ==================== FONCTION DE RÉINITIALISATION (SÉCURISÉE) ====================
 const resetDatabase = async () => {
   try {
-    console.log('🔄 RÉINITIALISATION COMPLÈTE DE LA BASE DE DONNÉES');
+    console.log('🔄 RÉINITIALISATION SÉCURISÉE');
     console.log('================================================\n');
     
-    // 1. Nettoyer
+    // ✅ CORRECTION : EN PRODUCTION, SEULEMENT CRÉER L'ADMIN SI NÉCESSAIRE
+    if (process.env.NODE_ENV === 'production') {
+      console.log('🏢 MODE PRODUCTION DÉTECTÉ');
+      console.log('🚫 AUCUNE DONNÉE NE SERA SUPPRIMÉE');
+      console.log('🔐 Vérification/création de l\'admin uniquement...\n');
+      
+      await seedAdminUser();
+      
+      console.log('\n✅ RÉINITIALISATION SÉCURISÉE TERMINÉE !');
+      console.log('================================================');
+      console.log('📊 Statut: Données préservées, admin vérifié/créé');
+      console.log('================================================\n');
+      return;
+    }
+    
+    // 🔧 EN DÉVELOPPEMENT UNIQUEMENT : nettoyage complet
+    console.log('💻 MODE DÉVELOPPEMENT - Nettoyage complet activé');
     await cleanDatabase();
+    await seedAdminUser();
     
-    // 2. Recréer l'admin avec mot de passe propre
-    console.log('\n🔐 Recréation de l\'utilisateur admin...');
-    await User.deleteOne({ email: ADMIN_EMAIL }); // Supprimer l'ancien
-    await seedAdminUser(); // Créer un nouveau
-    
-    console.log('\n✅ RÉINITIALISATION TERMINÉE !');
-    console.log('================================================');
-    console.log(`📧 Email: ${ADMIN_EMAIL}`);
-    console.log(`🔑 Mot de passe: ${ADMIN_PASSWORD}`);
-    console.log('================================================\n');
+    console.log('\n✅ RÉINITIALISATION DÉVELOPPEMENT TERMINÉE !');
     
   } catch (error) {
     console.error('❌ Erreur lors de la réinitialisation:', error.message);
+    throw error;
+  }
+};
+
+// ==================== NOUVELLE FONCTION : VÉRIFICATION SIMPLE ====================
+const checkAndCreateAdmin = async () => {
+  try {
+    console.log('🔍 Vérification de l\'utilisateur admin...');
+    await seedAdminUser();
+    console.log('✅ Vérification admin terminée');
+  } catch (error) {
+    console.error('❌ Erreur vérification admin:', error.message);
     throw error;
   }
 };
@@ -122,7 +142,8 @@ const resetDatabase = async () => {
 module.exports = {
   seedAdminUser,
   cleanDatabase,
-  resetDatabase
+  resetDatabase,
+  checkAndCreateAdmin  // ✅ NOUVELLE FONCTION SÉCURISÉE
 };
 
 // ==================== EXECUTION DIRECTE ====================
@@ -134,7 +155,16 @@ if (require.main === module) {
   const run = async () => {
     try {
       await connectDB();
-      await resetDatabase();
+      
+      // ✅ CORRECTION : Utiliser la fonction sécurisée au lieu de resetDatabase
+      if (process.env.NODE_ENV === 'production') {
+        console.log('🏢 EXÉCUTION EN PRODUCTION');
+        await checkAndCreateAdmin();
+      } else {
+        console.log('💻 EXÉCUTION EN DÉVELOPPEMENT');
+        await resetDatabase();
+      }
+      
       await mongoose.connection.close();
       console.log('✅ Connexion fermée');
       process.exit(0);

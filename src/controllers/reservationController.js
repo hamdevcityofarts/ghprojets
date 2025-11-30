@@ -21,16 +21,17 @@ function preparePaymentData(reservation, user = null, clientInfo = null) {
   // Déterminer la source des informations client
   const source = user || clientInfo || {};
 
-  return {
+  // ✅ DONNÉES DE BASE
+  const basePaymentData = {
     reservationId: reservation._id.toString(),
     amount: reservation.totalAmount,
-    currency: 'XAF', // Devise à confirmer
+    currency: 'XAF',
     clientFirstName: source.name,
     clientLastName: source.surname,
     clientEmail: source.email,
     clientPhone: source.phone || '',
-    clientAddress: 'Hotel Address', // À adapter si vous collectez l'adresse
-    clientCity: 'Douala', // À adapter
+    clientAddress: 'Hotel Address',
+    clientCity: 'Douala',
     checkIn: new Date(reservation.checkIn).toISOString().split('T')[0],
     checkOut: new Date(reservation.checkOut).toISOString().split('T')[0],
     roomName: reservation.chambre?.name || 'Chambre',
@@ -40,6 +41,41 @@ function preparePaymentData(reservation, user = null, clientInfo = null) {
     codePromo: reservation.codePromoUtilise,
     reduction: reservation.reductionAppliquee || 0
   };
+
+  // ✅ TENTATIVE DE GÉNÉRATION CYBERSOURCE
+  try {
+    console.log('🔹 Tentative de génération CyberSource...');
+    
+    // Vérifier si CybersourceSecure est disponible
+    if (CybersourceSecure && typeof CybersourceSecure.generatePaymentForm === 'function') {
+      const cyberSourceData = CybersourceSecure.generatePaymentForm(basePaymentData);
+      
+      if (cyberSourceData && cyberSourceData.form_data && cyberSourceData.form_action) {
+        console.log('✅ Données CyberSource générées avec succès');
+        return {
+          ...basePaymentData,
+          form_data: cyberSourceData.form_data,
+          form_action: cyberSourceData.form_action,
+          hasCyberSource: true
+        };
+      }
+    }
+    
+    // ✅ FALLBACK - Retourner les données basiques sans CyberSource
+    console.log('⚠️ CyberSource non disponible - utilisation du fallback');
+    return {
+      ...basePaymentData,
+      hasCyberSource: false
+    };
+    
+  } catch (error) {
+    console.error('❌ Erreur génération CyberSource:', error);
+    // ✅ FALLBACK EN CAS D'ERREUR
+    return {
+      ...basePaymentData,
+      hasCyberSource: false
+    };
+  }
 }
 
 // -----------------------------------------------------------
@@ -183,10 +219,18 @@ exports.createReservation = async (req, res) => {
 
     // Préparer les données pour Secure Acceptance
     const paymentData = preparePaymentData(reservation, req.user);
+    
+    console.log('🔹 Données paiement préparées:', {
+      hasCyberSource: paymentData.hasCyberSource,
+      form_data_present: !!paymentData.form_data,
+      form_action_present: !!paymentData.form_action
+    });
 
     res.status(201).json({
       success: true,
-      message: 'Réservation créée avec succès. Redirection vers le paiement.',
+      message: paymentData.hasCyberSource 
+        ? 'Réservation créée avec succès. Redirection vers le paiement.' 
+        : 'Réservation créée avec succès. Paiement à confirmer.',
       reservation,
       payment: paymentData,
       reduction: reduction > 0 ? { appliquee: true, montant: reduction, code: codePromo } : { appliquee: false }
@@ -228,7 +272,7 @@ exports.createReservationPublic = async (req, res) => {
 
     // --- Vérification ClientInfo (Nécessaire pour les réservations publiques) ---
     if (!clientInfo || !clientInfo.email || !clientInfo.name || !clientInfo.surname) {
-      return res.status(400).json({ success: false, message: 'Informations client (name, surname, email) requises pour la réservation publique.' });
+      return res.status(404).json({ success: false, message: 'Informations client (name, surname, email) requises pour la réservation publique.' });
     }
 
     console.log('📥 Données reçues (Public):', req.body);
@@ -367,10 +411,18 @@ exports.createReservationPublic = async (req, res) => {
 
     // Préparer les données pour Secure Acceptance (utiliser clientInfo)
     const paymentData = preparePaymentData(reservation, null, clientInfo);
+    
+    console.log('🔹 Données paiement préparées (Public):', {
+      hasCyberSource: paymentData.hasCyberSource,
+      form_data_present: !!paymentData.form_data,
+      form_action_present: !!paymentData.form_action
+    });
 
     res.status(201).json({
       success: true,
-      message: 'Réservation publique créée avec succès. Redirection vers le paiement.',
+      message: paymentData.hasCyberSource 
+        ? 'Réservation publique créée avec succès. Redirection vers le paiement.' 
+        : 'Réservation publique créée avec succès. Paiement à confirmer.',
       reservation,
       payment: paymentData,
       reduction: reduction > 0 ? { appliquee: true, montant: reduction, code: codePromo } : { appliquee: false }

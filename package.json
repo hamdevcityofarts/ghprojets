@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed:run": "node src/utils/seeder.js"
+    "seed:run": "node src/utils/seeder.js",
+    "seed:safe": "node -e \"require('./src/utils/seeder.js').checkAndCreateAdmin()\"",
+    "seed:reset": "NODE_ENV=development node src/utils/seeder.js"
   },
   "dependencies": {
     "axios": "^1.12.2",
