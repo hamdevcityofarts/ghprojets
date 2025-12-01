@@ -1,6 +1,8 @@
+// src/config/cors.js - VERSION CORRIGÉE POUR CYBERSOURCE
 const cors = require('cors');
 
 const allowedOrigins = [
+  // 🌐 FRONTEND
   'https://grandhotelaeroport.site',
   'https://www.grandhotelaeroport.site',
   'https://admin.grandhotelaeroport.site',
@@ -12,6 +14,9 @@ const allowedOrigins = [
   'http://127.0.0.1:3001',
   'http://127.0.0.1:5173',
   
+  // 🔐 CYBERSOURCE - TEST & PRODUCTION
+  'https://testsecureacceptance.cybersource.com',  // ✅ TEST AJOUTÉ
+  'https://secureacceptance.cybersource.com',      // ✅ PRODUCTION AJOUTÉ
 ];
 
 const corsOptions = {

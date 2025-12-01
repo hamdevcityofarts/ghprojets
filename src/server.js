@@ -1,3 +1,4 @@
+// server.js - VERSION CORRIGÉE AVEC CYBERSOURCE SUPPORT
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -23,9 +24,10 @@ app.use((req, res, next) => {
 });
 
 /* ----------------------------------------------
-   🌍 CONFIG CORS – VERSION COMPLÈTE MERGÉE
+   🌍 CONFIG CORS - AVEC CYBERSOURCE
 ------------------------------------------------ */
 const allowedOrigins = [
+  // 🌐 FRONTEND
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:5173',
@@ -34,6 +36,10 @@ const allowedOrigins = [
   'http://127.0.0.1:5173',
   'https://admin.grandhotelaeroport.site',
   'https://grandhotelaeroport.site',
+  
+  // 🔐 CYBERSOURCE - TEST & PRODUCTION (AJOUT CRITIQUE)
+  'https://testsecureacceptance.cybersource.com',
+  'https://secureacceptance.cybersource.com',
   
   process.env.FRONTEND_URL
 ].filter(Boolean);
@@ -58,7 +64,10 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 /* ----------------------------------------------
-   📦 BODY PARSER
+   📦 BODY PARSER - IMPORTANT POUR CYBERSOURCE
+   
+   CyberSource envoie les données en application/x-www-form-urlencoded
+   dans le callback, donc on doit supporter ce format.
 ------------------------------------------------ */
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -102,7 +111,7 @@ const swaggerOptions = {
     info: {
       title: 'API Grand Hotel Aéroport',
       version: '1.0.0',
-      description: 'Documentation de l’API Grand Hotel Aéroport'
+      description: 'Documentation de l API Grand Hotel Aéroport'
     },
     servers: [
       {
@@ -136,7 +145,10 @@ app.get('/api/test', (req, res) => {
       roomsDirectory: roomsDir,
       roomsExists: fs.existsSync(roomsDir)
     },
-    cors: { allowedOrigins }
+    cors: { 
+      allowedOrigins,
+      cybersourceIncluded: allowedOrigins.some(o => o.includes('cybersource'))
+    }
   });
 });
 
@@ -145,7 +157,7 @@ app.get('/api/test', (req, res) => {
 ------------------------------------------------ */
 app.get('/', (req, res) => {
   res.json({
-    message: 'Bienvenue sur l’API Grand Hotel Aéroport',
+    message: 'Bienvenue sur l API de Grand Hotel Aéroport',
     version: '1.0.0',
     endpoints: {
       auth: '/api/auth',
@@ -216,6 +228,8 @@ const startServer = async () => {
 
   app.listen(PORT, () => {
     console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
+    console.log(`✅ CyberSource Callback Support: Activé`);
+    console.log(`✅ Origines autorisées:`, allowedOrigins);
   });
 };
 

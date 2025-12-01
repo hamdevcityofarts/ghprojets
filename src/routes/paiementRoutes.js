@@ -1,7 +1,7 @@
-// routes/paiementRoutes.js - NOUVELLE VERSION SECURE ACCEPTANCE
+// src/routes/paiementRoutes.js - VERSION CORRIGÉE AVEC CALLBACK PUBLIC
 const express = require('express');
 const router = express.Router();
-const { protect, admin, optionalAuth } = require('../middlewares/authMiddleware');
+const { protect, admin } = require('../middlewares/authMiddleware');
 const {
   initiatePayment,
   handlePaymentCallback,
@@ -47,49 +47,28 @@ const {
  *               clientInfo:
  *                 type: object
  *                 description: Infos client (si non authentifié)
- *                 properties:
- *                   name:
- *                     type: string
- *                   surname:
- *                     type: string
- *                   email:
- *                     type: string
- *                   phone:
- *                     type: string
  *     responses:
  *       200:
  *         description: Paramètres de paiement générés
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 paymentUrl:
- *                   type: string
- *                   description: URL de la page de paiement CyberSource
- *                 params:
- *                   type: object
- *                   description: Paramètres signés à soumettre
- *                 paymentId:
- *                   type: string
- *                   description: ID du paiement créé
  */
 router.post('/initiate', initiatePayment);
 
 /**
  * ===================================================
- * ROUTES DE CALLBACK - RETOUR CYBERSOURCE
+ * ROUTES DE CALLBACK - RETOUR CYBERSOURCE (PUBLIC)
  * ===================================================
+ * 
+ * ⚠️ IMPORTANT: Ces routes DOIVENT être publiques (pas d'authentification)
+ * car CyberSource ne peut pas envoyer de token Bearer.
+ * La sécurité est assurée par la validation de la signature HMAC.
  */
 
 /**
  * @swagger
  * /api/payments/callback:
  *   post:
- *     summary: Callback après paiement CyberSource
- *     description: Reçoit et valide la réponse de CyberSource après paiement
+ *     summary: Callback après paiement CyberSource (PUBLIC)
+ *     description: Reçoit et valide la réponse de CyberSource après paiement. Route PUBLIQUE, sécurisée par signature HMAC.
  *     tags: [Paiements Secure Acceptance]
  *     requestBody:
  *       required: true
@@ -97,10 +76,12 @@ router.post('/initiate', initiatePayment);
  *         application/x-www-form-urlencoded:
  *           schema:
  *             type: object
- *             description: Paramètres retournés par CyberSource
+ *             description: Paramètres retournés par CyberSource (incluant signature)
  *     responses:
  *       200:
- *         description: Paiement traité
+ *         description: Paiement traité avec succès
+ *       400:
+ *         description: Signature invalide ou paramètres manquants
  */
 router.post('/callback', handlePaymentCallback);
 
@@ -108,8 +89,8 @@ router.post('/callback', handlePaymentCallback);
  * @swagger
  * /api/payments/cancel:
  *   post:
- *     summary: Callback annulation paiement
- *     description: Appelé quand l'utilisateur annule le paiement
+ *     summary: Callback annulation paiement (PUBLIC)
+ *     description: Appelé quand l'utilisateur annule le paiement. Route PUBLIQUE.
  *     tags: [Paiements Secure Acceptance]
  *     requestBody:
  *       required: true
@@ -136,7 +117,7 @@ router.post('/cancel', handlePaymentCancel);
  * @swagger
  * /api/payments/mock-callback:
  *   get:
- *     summary: Callback simulé (mode développement)
+ *     summary: Callback simulé (mode développement - PUBLIC)
  *     description: Simule un retour de CyberSource sans clés API
  *     tags: [Paiements Secure Acceptance]
  *     parameters:
@@ -159,7 +140,7 @@ router.get('/mock-callback', handleMockCallback);
 
 /**
  * ===================================================
- * ROUTES ADMINISTRATIVES
+ * ROUTES ADMINISTRATIVES (PROTÉGÉES)
  * ===================================================
  */
 
@@ -174,6 +155,10 @@ router.get('/mock-callback', handleMockCallback);
  *     responses:
  *       200:
  *         description: Liste des paiements
+ *       401:
+ *         description: Non authentifié
+ *       403:
+ *         description: Accès réservé aux administrateurs
  */
 router.get('/', protect, admin, getPayments);
 
@@ -188,6 +173,10 @@ router.get('/', protect, admin, getPayments);
  *     responses:
  *       200:
  *         description: Statistiques
+ *       401:
+ *         description: Non authentifié
+ *       403:
+ *         description: Accès réservé aux administrateurs
  */
 router.get('/stats', protect, admin, getPaymentStats);
 
@@ -208,6 +197,8 @@ router.get('/stats', protect, admin, getPaymentStats);
  *     responses:
  *       200:
  *         description: Détails du paiement
+ *       401:
+ *         description: Non authentifié
  */
 router.get('/:id', protect, getPaymentById);
 
