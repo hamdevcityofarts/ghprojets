@@ -27,7 +27,7 @@ class ReceiptGenerator {
     
     // Générer le PDF
     const pdfBuffer = await page.pdf({
-      format: 'A4',
+      format: 'A5',
       printBackground: true,
       margin: {
         top: '20mm',
