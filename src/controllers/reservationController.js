@@ -5,6 +5,7 @@ const CodePromo = require('../models/CodePromo');
 const crypto = require('crypto');
 // Assurez-vous que le chemin et l'exportation sont corrects
 const CybersourceSecure = require('../config/cybersourceSecureAcceptance'); 
+const PDFGenerator = require('../config/pdfGenerator'); // Chemin vers votre générateur
 
 // -----------------------------------------------------------
 // 📚 Fonctions Utilitaires
@@ -911,6 +912,9 @@ exports.getPromoCodeStats = async (req, res) => {
 /**
  * 🔹 Générer un reçu HTML pour une réservation
  */
+/**
+ * 🔹 Générer un reçu PDF pour une réservation
+ */
 exports.generateReceipt = async (req, res) => {
   try {
     const reservation = await Reservation.findById(req.params.id)
@@ -936,483 +940,35 @@ exports.generateReceipt = async (req, res) => {
       });
     }
 
-    // Formater les dates
-    const formatDate = (date) => {
-      return new Date(date).toLocaleDateString('fr-FR', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
-    };
-
-    const formatDateTime = (date) => {
-      return new Date(date).toLocaleString('fr-FR', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    };
-
-    // Formater le prix
-    const formatPrice = (price) => {
-      return new Intl.NumberFormat('fr-FR').format(price) + ' FCFA';
-    };
-
-    // Déterminer le statut en français
-    const getStatusLabel = (status) => {
-      const statusMap = {
-        'confirmed': 'Confirmée',
-        'pending_payment': 'En attente de paiement',
-        'partially_paid': 'Partiellement payée',
-        'cancelled': 'Annulée',
-        'completed': 'Terminée',
-        'payment_failed': 'Paiement échoué',
-        'pending': 'En attente'
-      };
-      return statusMap[status] || status;
-    };
-
-    // Déterminer l'option de paiement en français
-    const getPaymentOptionLabel = (option) => {
-      const optionsMap = {
-        'first-night': 'Première nuit',
-        'partial': 'Paiement partiel',
-        'full': 'Paiement complet'
-      };
-      return optionsMap[option] || option;
-    };
-
-    // Créer le contenu HTML du reçu
-    const receiptHtml = `
-      <!DOCTYPE html>
-      <html lang="fr">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Reçu Réservation ${reservation._id}</title>
-        <style>
-          /* Styles optimisés pour impression */
-          @media print {
-            body { margin: 0; padding: 20px; }
-            .no-print { display: none !important; }
-            .page-break { page-break-before: always; }
-          }
-          
-          body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f9f9f9;
-          }
-          
-          .receipt-container {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 30px;
-            position: relative;
-          }
-          
-          .header {
-            text-align: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 2px solid #3498db;
-          }
-          
-          .hotel-name {
-            color: #2c3e50;
-            font-size: 28px;
-            font-weight: bold;
-            margin-bottom: 5px;
-          }
-          
-          .hotel-subtitle {
-            color: #7f8c8d;
-            font-size: 14px;
-            margin-bottom: 10px;
-          }
-          
-          .receipt-title {
-            color: #3498db;
-            font-size: 20px;
-            font-weight: bold;
-            margin: 15px 0;
-          }
-          
-          .section {
-            margin: 25px 0;
-          }
-          
-          .section-title {
-            color: #2c3e50;
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #ecf0f1;
-          }
-          
-          .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin: 15px 0;
-          }
-          
-          .info-item {
-            margin-bottom: 12px;
-          }
-          
-          .info-label {
-            color: #7f8c8d;
-            font-size: 13px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-          }
-          
-          .info-value {
-            color: #2c3e50;
-            font-size: 15px;
-            font-weight: 500;
-          }
-          
-          .status-badge {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: bold;
-            text-transform: uppercase;
-          }
-          
-          .status-confirmed { background: #d4edda; color: #155724; }
-          .status-pending { background: #fff3cd; color: #856404; }
-          .status-cancelled { background: #f8d7da; color: #721c24; }
-          
-          .price-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-          }
-          
-          .price-table th {
-            background: #f8f9fa;
-            padding: 12px 15px;
-            text-align: left;
-            font-weight: 600;
-            color: #495057;
-            border-bottom: 2px solid #dee2e6;
-          }
-          
-          .price-table td {
-            padding: 12px 15px;
-            border-bottom: 1px solid #dee2e6;
-          }
-          
-          .price-table tr.total-row {
-            background: #f8f9fa;
-            font-weight: bold;
-          }
-          
-          .price-table .amount {
-            text-align: right;
-            font-family: 'Courier New', monospace;
-          }
-          
-          .total-section {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 6px;
-            margin: 30px 0;
-            border-left: 4px solid #28a745;
-          }
-          
-          .total-amount {
-            font-size: 24px;
-            font-weight: bold;
-            color: #28a745;
-            text-align: right;
-          }
-          
-          .footer {
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid #ecf0f1;
-            font-size: 12px;
-            color: #95a5a6;
-            text-align: center;
-          }
-          
-          .contact-info {
-            margin-top: 10px;
-            font-size: 11px;
-          }
-          
-          .reference {
-            font-family: 'Courier New', monospace;
-            background: #f8f9fa;
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 13px;
-            display: inline-block;
-          }
-          
-          .print-btn {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            background: #3498db;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: bold;
-            z-index: 1000;
-          }
-          
-          .print-btn:hover {
-            background: #2980b9;
-          }
-          
-          .watermark {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 100px;
-            color: rgba(0,0,0,0.05);
-            font-weight: bold;
-            pointer-events: none;
-            user-select: none;
-            z-index: -1;
-          }
-        </style>
-      </head>
-      <body>
-        <button class="print-btn no-print" onclick="window.print()">🖨️ Imprimer le reçu</button>
-        
-        <div class="receipt-container">
-          <div class="watermark">HOTEL NOGA</div>
-          
-          <div class="header">
-            <div class="hotel-name">HOTEL NOGA</div>
-            <div class="hotel-subtitle">Douala, Cameroun • contact@hotelnoga.com • +237 XXX XXX XXX</div>
-            <div class="receipt-title">REÇU DE RÉSERVATION</div>
-            <div>Émis le ${formatDateTime(new Date())}</div>
-            <div class="reference">Référence: ${reservation._id}</div>
-          </div>
-          
-          <!-- Informations client -->
-          <div class="section">
-            <div class="section-title">Informations client</div>
-            <div class="info-grid">
-              <div class="info-item">
-                <div class="info-label">Nom complet</div>
-                <div class="info-value">${reservation.client?.name || reservation.clientInfo?.name} ${reservation.client?.surname || reservation.clientInfo?.surname}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Email</div>
-                <div class="info-value">${reservation.client?.email || reservation.clientInfo?.email}</div>
-              </div>
-              ${reservation.client?.phone || reservation.clientInfo?.phone ? `
-              <div class="info-item">
-                <div class="info-label">Téléphone</div>
-                <div class="info-value">${reservation.client?.phone || reservation.clientInfo?.phone}</div>
-              </div>
-              ` : ''}
-              <div class="info-item">
-                <div class="info-label">Statut de la réservation</div>
-                <div class="info-value">
-                  <span class="status-badge status-${reservation.status}">${getStatusLabel(reservation.status)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Détails du séjour -->
-          <div class="section">
-            <div class="section-title">Détails du séjour</div>
-            <div class="info-grid">
-              <div class="info-item">
-                <div class="info-label">Chambre</div>
-                <div class="info-value">${reservation.chambre?.name || 'Chambre'} (${reservation.chambre?.type || 'Standard'})</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Date d'arrivée</div>
-                <div class="info-value">${formatDate(reservation.checkIn)} • À partir de 14h00</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Date de départ</div>
-                <div class="info-value">${formatDate(reservation.checkOut)} • Avant 12h00</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Durée du séjour</div>
-                <div class="info-value">${reservation.nights} nuit(s)</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Nombre de personnes</div>
-                <div class="info-value">${reservation.guests} personne(s) (${reservation.adults} adulte(s), ${reservation.children} enfant(s))</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Option de paiement</div>
-                <div class="info-value">${getPaymentOptionLabel(reservation.paymentOption)}</div>
-              </div>
-            </div>
-            
-            ${reservation.specialRequests ? `
-            <div class="info-item" style="margin-top: 15px;">
-              <div class="info-label">Demandes spéciales</div>
-              <div class="info-value" style="font-style: italic;">"${reservation.specialRequests}"</div>
-            </div>
-            ` : ''}
-          </div>
-          
-          <!-- Détails financiers -->
-          <div class="section">
-            <div class="section-title">Détails financiers</div>
-            
-            <table class="price-table">
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th>Quantité</th>
-                  <th>Prix unitaire</th>
-                  <th class="amount">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Séjour - ${reservation.nights} nuit(s)</td>
-                  <td>${reservation.nights}</td>
-                  <td>${formatPrice(reservation.chambre?.price || (reservation.totalAmount / reservation.nights))}</td>
-                  <td class="amount">${formatPrice(reservation.nights * (reservation.chambre?.price || (reservation.totalAmount / reservation.nights)))}</td>
-                </tr>
-                
-                ${reservation.codePromoUtilise && reservation.reductionAppliquee > 0 ? `
-                <tr style="color: #28a745;">
-                  <td colspan="3">Réduction - Code promo: <strong>${reservation.codePromoUtilise}</strong></td>
-                  <td class="amount">-${formatPrice(reservation.reductionAppliquee)}</td>
-                </tr>
-                ` : ''}
-                
-                <tr class="total-row">
-                  <td colspan="3"><strong>TOTAL À PAYER</strong></td>
-                  <td class="amount"><strong>${formatPrice(reservation.totalAmount)}</strong></td>
-                </tr>
-              </tbody>
-            </table>
-            
-            ${reservation.paiement?.paidAt ? `
-            <div class="info-item" style="margin-top: 15px;">
-              <div class="info-label">Date du paiement</div>
-              <div class="info-value">${formatDateTime(reservation.paiement.paidAt)}</div>
-            </div>
-            ` : ''}
-            
-            ${reservation.paiement?.transactionId ? `
-            <div class="info-item">
-              <div class="info-label">Référence de transaction</div>
-              <div class="info-value reference">${reservation.paiement.transactionId}</div>
-            </div>
-            ` : ''}
-          </div>
-          
-          <!-- Section total -->
-          <div class="total-section">
-            <div class="total-amount">TOTAL: ${formatPrice(reservation.totalAmount)}</div>
-            <div style="text-align: right; color: #6c757d; font-size: 14px; margin-top: 10px;">
-              Taxes et frais de service inclus
-            </div>
-          </div>
-          
-          <!-- Informations de paiement -->
-          <div class="section">
-            <div class="section-title">Informations de paiement</div>
-            <div class="info-grid">
-              <div class="info-item">
-                <div class="info-label">Méthode de paiement</div>
-                <div class="info-value">${reservation.paymentMethod === 'card' ? 'Carte bancaire' : 
-                  reservation.paymentMethod === 'cash' ? 'Espèces' : 
-                  reservation.paymentMethod === 'transfer' ? 'Virement' : 
-                  reservation.paymentMethod === 'check' ? 'Chèque' : 'Non spécifiée'}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Statut du paiement</div>
-                <div class="info-value">
-                  ${reservation.paiement?.status === 'paid' ? '✅ Payé' : 
-                    reservation.paiement?.status === 'pending' ? '⏳ En attente' : 
-                    reservation.paiement?.status === 'failed' ? '❌ Échoué' : 
-                    reservation.paiement?.status === 'refunded' ? '↩️ Remboursé' : 'Non spécifié'}
-                </div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Source de la réservation</div>
-                <div class="info-value">${reservation.source === 'website' ? 'Site web (utilisateur connecté)' : 
-                  reservation.source === 'public_website' ? 'Site web (public)' : 
-                  reservation.source === 'admin' ? 'Administration' : 'Non spécifiée'}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Date de création</div>
-                <div class="info-value">${reservation.createdAt ? formatDateTime(reservation.createdAt) : 'Non disponible'}</div>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Footer -->
-          <div class="footer">
-            <p><strong>HOTEL NOGA</strong> • Douala, Cameroun</p>
-            <div class="contact-info">
-              <p>📞 +237 XXX XXX XXX • ✉️ contact@hotelnoga.com • 🌐 www.hotelnoga.com</p>
-              <p>Ce document fait office de reçu officiel pour la réservation mentionnée ci-dessus.</p>
-              <p>Conservez ce reçu et présentez-le à la réception lors de votre arrivée.</p>
-              <p>Pour toute question concernant votre réservation, contactez notre service client.</p>
-            </div>
-            <p style="margin-top: 15px; font-size: 10px; color: #bdc3c7;">
-              Reçu généré le ${new Date().toLocaleString('fr-FR')} • ID Réservation: ${reservation._id}
-            </p>
-          </div>
-        </div>
-        
-        <script>
-          // Auto-impression optionnelle
-          setTimeout(() => {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('print') === 'true') {
-              window.print();
-            }
-          }, 1000);
-        </script>
-      </body>
-      </html>
-    `;
-
-    // Déterminer le type de réponse
-    const acceptHeader = req.headers.accept || '';
+    // Générer le HTML du reçu
+    const receiptHtml = generateReceiptHTML(reservation);
     
-    if (acceptHeader.includes('application/pdf')) {
-      // Si le client demande un PDF (vous pouvez ajouter une génération PDF ici si vous avez puppeteer/pdfkit)
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('Content-Disposition', `inline; filename="receipt-${reservation._id}.html"`);
-      res.send(receiptHtml);
-    } else if (req.query.format === 'pdf') {
-      // Option pour forcer le téléchargement
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('Content-Disposition', `attachment; filename="receipt-${reservation._id}.html"`);
-      res.send(receiptHtml);
+    // Vérifier si le client demande un PDF
+    const acceptHeader = req.headers.accept || '';
+    const wantsPDF = acceptHeader.includes('application/pdf') || req.query.format === 'pdf';
+    
+    if (wantsPDF) {
+      try {
+        console.log('📄 Tentative de génération PDF avec Puppeteer...');
+        
+        // Générer le PDF
+        const pdfBuffer = await PDFGenerator.generatePDF(receiptHtml);
+        
+        // Configurer les headers pour le PDF
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="receipt-${reservation._id}.pdf"`);
+        
+        // Envoyer le PDF
+        return res.send(pdfBuffer);
+        
+      } catch (pdfError) {
+        console.error('❌ Erreur génération PDF, fallback vers HTML:', pdfError);
+        // Fallback vers HTML en cas d'erreur
+        return sendHTMLReceipt(res, receiptHtml, reservation._id);
+      }
     } else {
-      // Par défaut, retourner HTML
-      res.setHeader('Content-Type', 'text/html');
-      res.send(receiptHtml);
+      // Retourner le HTML par défaut
+      return sendHTMLReceipt(res, receiptHtml, reservation._id);
     }
 
   } catch (error) {
@@ -1425,6 +981,19 @@ exports.generateReceipt = async (req, res) => {
   }
 };
 
+// Fonction helper pour envoyer le HTML
+function sendHTMLReceipt(res, html, reservationId) {
+  res.setHeader('Content-Type', 'text/html');
+  res.setHeader('Content-Disposition', `inline; filename="receipt-${reservationId}.html"`);
+  res.send(html);
+}
+
+// Fonction helper pour générer le HTML
+function generateReceiptHTML(reservation) {
+  // Copiez ici tout le code HTML de la fonction précédente
+  // ...
+  return htmlContent;
+}
 /**
  * 🔹 Télécharger le reçu en PDF (option simplifiée)
  */
