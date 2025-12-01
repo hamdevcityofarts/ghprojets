@@ -5,7 +5,7 @@ const CodePromo = require('../models/CodePromo');
 const crypto = require('crypto');
 // Assurez-vous que le chemin et l'exportation sont corrects
 const CybersourceSecure = require('../config/cybersourceSecureAcceptance'); 
-const PDFGenerator = require('../config/pdfGenerator'); // Chemin vers votre générateur
+const PDFGenerator = require('../config/receiptGenerator'); // Chemin vers votre générateur
 
 // -----------------------------------------------------------
 // 📚 Fonctions Utilitaires
