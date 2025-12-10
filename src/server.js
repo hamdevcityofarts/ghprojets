@@ -34,6 +34,10 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
   'http://127.0.0.1:5173',
+  'https://grandhotelakwa.site',
+  'https://admin.grandhotelakwa.site',
+  'https://grandhotelcity.site',
+  'https://admin.grandhotelcity.site',
   'https://admin.grandhotelaeroport.site',
   'https://grandhotelaeroport.site',
   
