@@ -1,78 +1,282 @@
-// src/models/userModel.js
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+// src/routes/userRoutes.js
 
-const userSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
-  surname: { type: String, required: false, trim: true },
-  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-  phone: { type: String, required: false, trim: true },
+const express = require('express');
+const router = express.Router();
+const { protect, admin, gestionUtilisateurs } = require('../middlewares/authMiddleware');
+const {
+  createUser,
+  getUsers,
+  getUserById,
+  updateUser,
+  deleteUser
+} = require('../controllers/userController');
 
-  department: { 
-    type: String, 
-    enum: ['direction', 'reception', 'housekeeping', 'restaurant', 'maintenance', 'other'],
-    required: false 
-  },
-  role: { 
-    type: String, 
-    enum: ['admin', 'manager', 'receptionist', 'housekeeper', 'supervisor', 'technician', 'client'],
-    default: 'client' 
-  },
-  hireDate: { type: Date, required: false },
+/**
+ * @swagger
+ * tags:
+ *   name: Utilisateurs
+ *   description: Gestion des utilisateurs (réservé aux administrateurs)
+ */
 
-  // CORRECTION CRITIQUE: select: false pour forcer l'utilisation de +password
-  password: { type: String, required: true, select: false },
+/**
+ * @swagger
+ * /api/utilisateurs:
+ *   post:
+ *     summary: Créer un nouvel utilisateur
+ *     description: Accessible uniquement aux administrateurs avec permission gestion_utilisateurs
+ *     tags: [Utilisateurs]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - email
+ *               - password
+ *               - role
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "Hamed"
+ *               surname:
+ *                 type: string
+ *                 example: "Ndonkou"
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: "hamed@example.com"
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 example: "MotDePasseFort123!"
+ *               role:
+ *                 type: string
+ *                 enum: [admin, manager, receptionist, housekeeper, supervisor, technician, client]
+ *                 example: "receptionist"
+ *               phone:
+ *                 type: string
+ *                 example: "+33 1 23 45 67 89"
+ *               department:
+ *                 type: string
+ *                 enum: [direction, reception, housekeeping, restaurant, maintenance, other]
+ *                 example: "reception"
+ *               status:
+ *                 type: string
+ *                 enum: [actif, inactif, en_conge, pending]
+ *                 example: "actif"
+ *               permissions:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: "Permissions optionnelles (seront appliquées par défaut selon le rôle si non fourni)"
+ *                 example: ["gestion_reservations", "gestion_clients"]
+ *     responses:
+ *       201:
+ *         description: Utilisateur créé avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 _id:
+ *                   type: string
+ *                 name:
+ *                   type: string
+ *                 email:
+ *                   type: string
+ *                 role:
+ *                   type: string
+ *                 permissions:
+ *                   type: array
+ *       400:
+ *         description: Erreur de validation ou email déjà utilisé
+ *       401:
+ *         description: Non autorisé
+ *       403:
+ *         description: Accès refusé - Permission manquante
+ *
+ *   get:
+ *     summary: Récupérer tous les utilisateurs
+ *     description: Liste tous les utilisateurs de la plateforme (réservé aux administrateurs avec permission gestion_utilisateurs)
+ *     tags: [Utilisateurs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste des utilisateurs récupérée avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   _id:
+ *                     type: string
+ *                     example: "66fd2a89a43b0cd9e3d2a345"
+ *                   name:
+ *                     type: string
+ *                     example: "Jean"
+ *                   surname:
+ *                     type: string
+ *                     example: "Dupont"
+ *                   email:
+ *                     type: string
+ *                     example: "jean.dupont@example.com"
+ *                   role:
+ *                     type: string
+ *                     example: "receptionist"
+ *                   department:
+ *                     type: string
+ *                     example: "reception"
+ *                   status:
+ *                     type: string
+ *                     example: "actif"
+ *                   permissions:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *       401:
+ *         description: Non autorisé
+ *       403:
+ *         description: Accès refusé - Permission manquante
+ */
 
-  status: { 
-    type: String, 
-    enum: ['actif', 'inactif', 'en_conge', 'pending'],
-    default: 'actif' 
-  },
+/**
+ * @swagger
+ * /api/utilisateurs/{id}:
+ *   get:
+ *     summary: Récupérer un utilisateur par ID
+ *     description: Permet de consulter les informations d'un utilisateur spécifique
+ *     tags: [Utilisateurs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID de l'utilisateur à récupérer
+ *     responses:
+ *       200:
+ *         description: Informations de l'utilisateur récupérées avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 _id:
+ *                   type: string
+ *                 name:
+ *                   type: string
+ *                 email:
+ *                   type: string
+ *                 role:
+ *                   type: string
+ *                 permissions:
+ *                   type: array
+ *       401:
+ *         description: Non autorisé
+ *       403:
+ *         description: Accès refusé - Permission manquante
+ *       404:
+ *         description: Utilisateur introuvable
+ *
+ *   put:
+ *     summary: Mettre à jour un utilisateur
+ *     description: Permet de modifier les informations d'un utilisateur existant
+ *     tags: [Utilisateurs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID de l'utilisateur à mettre à jour
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               surname:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               role:
+ *                 type: string
+ *                 enum: [admin, manager, receptionist, housekeeper, supervisor, technician, client]
+ *               phone:
+ *                 type: string
+ *               department:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *                 enum: [actif, inactif, en_conge, pending]
+ *               permissions:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               password:
+ *                 type: string
+ *                 format: password
+ *     responses:
+ *       200:
+ *         description: Utilisateur mis à jour avec succès
+ *       400:
+ *         description: Données invalides
+ *       401:
+ *         description: Non autorisé
+ *       403:
+ *         description: Accès refusé - Permission manquante
+ *       404:
+ *         description: Utilisateur non trouvé
+ *
+ *   delete:
+ *     summary: Supprimer un utilisateur
+ *     description: Supprime définitivement un utilisateur de la base de données
+ *     tags: [Utilisateurs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID de l'utilisateur à supprimer
+ *     responses:
+ *       200:
+ *         description: Utilisateur supprimé avec succès
+ *       401:
+ *         description: Non autorisé
+ *       403:
+ *         description: Accès refusé - Permission manquante
+ *       404:
+ *         description: Utilisateur introuvable
+ */
 
-  permissions: [{
-    type: String,
-    enum: [
-      'gestion_utilisateurs',
-      'gestion_chambres', 
-      'gestion_reservations',
-      'gestion_clients',
-      'acces_finances',
-      'rapports',
-      'parametres_systeme',
-      'gestion_menage',
-      'gestion_restaurant'
-    ]
-  }],
+// ✅ Routes avec middleware de permissions
+// Chaîne de middlewares: protect (authentification) -> gestionUtilisateurs (vérification permission)
 
-  lastLogin: { type: Date, required: false },
-  memberSince: { type: Date, default: Date.now }
+router.route('/')
+  .post(protect, gestionUtilisateurs, createUser)
+  .get(protect, gestionUtilisateurs, getUsers);
 
-}, { timestamps: true });
+router.route('/:id')
+  .get(protect, gestionUtilisateurs, getUserById)
+  .put(protect, gestionUtilisateurs, updateUser)
+  .delete(protect, gestionUtilisateurs, deleteUser);
 
-// Hash password avant sauvegarde
-userSchema.pre('save', async function (next) {
-  // CORRECTION: Ne hasher que si le mot de passe est modifié
-  if (!this.isModified('password')) {
-    return next();
-  }
-  
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Méthode pour comparer les mots de passe
-userSchema.methods.matchPassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
-};
-
-// Virtual pour nom complet
-userSchema.virtual('fullName').get(function() {
-  return `${this.name || ''} ${this.surname || ''}`.trim();
-});
-
-module.exports = mongoose.model('User', userSchema);
+module.exports = router;
