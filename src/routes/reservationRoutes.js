@@ -331,6 +331,143 @@ router.get('/', protect, reservationAccess, reservationController.getReservation
 
 /**
  * @swagger
+ * /api/reservations/stats/overview:
+ *   get:
+ *     summary: Obtenir les statistiques des réservations (Admin uniquement)
+ *     tags: [Reservations]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Statistiques récupérées avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 stats:
+ *                   type: object
+ *                   properties:
+ *                     totals:
+ *                       type: object
+ *                       properties:
+ *                         totalReservations:
+ *                           type: number
+ *                           example: 150
+ *                         confirmedReservations:
+ *                           type: number
+ *                           example: 120
+ *                         cancelledReservations:
+ *                           type: number
+ *                           example: 15
+ *                         pendingReservations:
+ *                           type: number
+ *                           example: 15
+ *                     revenue:
+ *                       type: object
+ *                       properties:
+ *                         totalRevenue:
+ *                           type: number
+ *                           example: 15000000
+ *                         averageRevenue:
+ *                           type: number
+ *                           example: 100000
+ *                     monthlyStats:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: object
+ *                             properties:
+ *                               year:
+ *                                 type: number
+ *                               month:
+ *                                 type: number
+ *                           count:
+ *                             type: number
+ *                           revenue:
+ *                             type: number
+ *                     statusStats:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           count:
+ *                             type: number
+ *                           totalAmount:
+ *                             type: number
+ *                     topRooms:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       500:
+ *         description: Erreur serveur
+ */
+router.get('/stats/overview', protect, admin, reservationController.getReservationStats);
+
+/**
+ * @swagger
+ * /api/reservations/stats/promo-codes:
+ *   get:
+ *     summary: Obtenir les statistiques détaillées des codes promo (Admin uniquement)
+ *     tags: [Reservations]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Statistiques codes promo récupérées avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 stats:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                         example: "NOEL2024"
+ *                       count:
+ *                         type: number
+ *                         example: 25
+ *                       totalReduction:
+ *                         type: number
+ *                         example: 500000
+ *                       totalRevenue:
+ *                         type: number
+ *                         example: 2500000
+ *                       averageReduction:
+ *                         type: number
+ *                         example: 20000
+ *                       revenuePerCode:
+ *                         type: number
+ *                         example: 100000
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       500:
+ *         description: Erreur serveur
+ */
+router.get('/stats/promo-codes', protect, admin, reservationController.getPromoCodeStats);
+
+/**
+ * @swagger
  * /api/reservations/{id}:
  *   get:
  *     summary: Récupérer une réservation par son ID
@@ -460,7 +597,6 @@ router.put('/:id/cancel', protect, reservationAccess, reservationController.canc
 /**
  * @swagger
  * /api/reservations/{id}/confirm:
- *   put:
  *     summary: Confirmer une réservation (admin uniquement)
  *     tags: [Reservations]
  *     security:
@@ -868,142 +1004,5 @@ router.get('/:id/receipt/download', protect, reservationAccess, reservationContr
  *         description: Erreur lors de la génération des URLs
  */
 router.get('/:id/receipt/url', protect, reservationAccess, reservationController.getReceiptUrl);
-
-/**
- * @swagger
- * /api/reservations/stats/overview:
- *   get:
- *     summary: Obtenir les statistiques des réservations (Admin uniquement)
- *     tags: [Reservations]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Statistiques récupérées avec succès
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 stats:
- *                   type: object
- *                   properties:
- *                     totals:
- *                       type: object
- *                       properties:
- *                         totalReservations:
- *                           type: number
- *                           example: 150
- *                         confirmedReservations:
- *                           type: number
- *                           example: 120
- *                         cancelledReservations:
- *                           type: number
- *                           example: 15
- *                         pendingReservations:
- *                           type: number
- *                           example: 15
- *                     revenue:
- *                       type: object
- *                       properties:
- *                         totalRevenue:
- *                           type: number
- *                           example: 15000000
- *                         averageRevenue:
- *                           type: number
- *                           example: 100000
- *                     monthlyStats:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           _id:
- *                             type: object
- *                             properties:
- *                               year:
- *                                 type: number
- *                               month:
- *                                 type: number
- *                           count:
- *                             type: number
- *                           revenue:
- *                             type: number
- *                     statusStats:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           _id:
- *                             type: string
- *                           count:
- *                             type: number
- *                           totalAmount:
- *                             type: number
- *                     topRooms:
- *                       type: array
- *                       items:
- *                         type: object
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         $ref: '#/components/responses/Forbidden'
- *       500:
- *         description: Erreur serveur
- */
-router.get('/stats/overview', protect, admin, reservationController.getReservationStats);
-
-/**
- * @swagger
- * /api/reservations/stats/promo-codes:
- *   get:
- *     summary: Obtenir les statistiques détaillées des codes promo (Admin uniquement)
- *     tags: [Reservations]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Statistiques codes promo récupérées avec succès
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 stats:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       _id:
- *                         type: string
- *                         example: "NOEL2024"
- *                       count:
- *                         type: number
- *                         example: 25
- *                       totalReduction:
- *                         type: number
- *                         example: 500000
- *                       totalRevenue:
- *                         type: number
- *                         example: 2500000
- *                       averageReduction:
- *                         type: number
- *                         example: 20000
- *                       revenuePerCode:
- *                         type: number
- *                         example: 100000
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         $ref: '#/components/responses/Forbidden'
- *       500:
- *         description: Erreur serveur
- */
-router.get('/stats/promo-codes', protect, admin, reservationController.getPromoCodeStats);
 
 module.exports = router;

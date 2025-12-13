@@ -1450,6 +1450,190 @@ exports.generateReceipt = async (req, res) => {
   }
 };
 
+/**
+ * 🔹 Télécharger le reçu en tant que fichier
+ */
+exports.downloadReceipt = async (req, res) => {
+  try {
+    const reservation = await Reservation.findById(req.params.id)
+      .populate('client', 'name surname email phone role')
+      .populate('chambre', 'number name type price amenities')
+      .populate('codePromo', 'code description value type');
+
+    if (!reservation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Réservation non trouvée'
+      });
+    }
+
+    const user = req.user;
+    const isAdmin = user.role === 'admin';
+    const isManager = user.role === 'manager';
+    const isReceptionist = user.role === 'receptionist';
+    const isSupervisor = user.role === 'supervisor';
+    const isOwner = reservation.client && reservation.client._id.equals(user._id);
+    
+    const canViewReceipt = isAdmin || isManager || isReceptionist || isSupervisor || isOwner;
+    const hasReservationPermission = user.permissions.includes('gestion_reservations');
+    
+    if (!canViewReceipt || !hasReservationPermission) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès non autorisé à ce reçu'
+      });
+    }
+
+    // Générer le HTML du reçu
+    const receiptHtml = `
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reçu Réservation #${reservation._id}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 40px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .hotel-name { font-size: 24px; font-weight: bold; color: #2c3e50; }
+          .receipt-title { font-size: 20px; margin-top: 20px; }
+          .section { margin: 20px 0; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+          .info-item { margin: 10px 0; }
+          .label { font-weight: bold; color: #555; }
+          .value { color: #333; }
+          .total { font-size: 18px; font-weight: bold; margin-top: 30px; padding-top: 20px; border-top: 2px solid #ddd; }
+          .footer { margin-top: 50px; text-align: center; color: #777; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="hotel-name">GRAND HOTEL</div>
+          <div class="receipt-title">REÇU DE RÉSERVATION</div>
+          <div>N° ${reservation._id}</div>
+        </div>
+        
+        <div class="section">
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="label">Client:</div>
+              <div class="value">${reservation.client?.name || reservation.clientInfo?.name} ${reservation.client?.surname || reservation.clientInfo?.surname}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">Email:</div>
+              <div class="value">${reservation.client?.email || reservation.clientInfo?.email}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">Chambre:</div>
+              <div class="value">${reservation.chambre?.number} - ${reservation.chambre?.name}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">Période:</div>
+              <div class="value">${new Date(reservation.checkIn).toLocaleDateString('fr-FR')} au ${new Date(reservation.checkOut).toLocaleDateString('fr-FR')}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">Nuits:</div>
+              <div class="value">${reservation.nights || reservation.nuits}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">Statut:</div>
+              <div class="value">${reservation.status}</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <div class="info-item">
+            <div class="label">Montant Total:</div>
+            <div class="value total">${reservation.totalAmount?.toLocaleString('fr-FR')} FCFA</div>
+          </div>
+          ${reservation.codePromoUtilise ? `
+          <div class="info-item">
+            <div class="label">Code Promo:</div>
+            <div class="value">${reservation.codePromoUtilise} (Réduction: ${reservation.reductionAppliquee?.toLocaleString('fr-FR')} FCFA)</div>
+          </div>
+          ` : ''}
+        </div>
+        
+        <div class="footer">
+          <div>Reçu généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}</div>
+          <div>GRAND HOTEL - Tél: +237 XXX XX XX XX</div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    // Configurer les headers pour le téléchargement
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="receipt-${reservation._id}.html"`);
+    
+    // Envoyer le fichier
+    res.send(receiptHtml);
+
+  } catch (error) {
+    console.error('❌ Erreur téléchargement reçu:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors du téléchargement du reçu',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * 🔹 Obtenir les URLs du reçu
+ */
+exports.getReceiptUrl = async (req, res) => {
+  try {
+    const reservation = await Reservation.findById(req.params.id);
+
+    if (!reservation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Réservation non trouvée'
+      });
+    }
+
+    const user = req.user;
+    const isAdmin = user.role === 'admin';
+    const isManager = user.role === 'manager';
+    const isReceptionist = user.role === 'receptionist';
+    const isSupervisor = user.role === 'supervisor';
+    const isOwner = reservation.client && reservation.client._id.equals(user._id);
+    
+    const canViewReceipt = isAdmin || isManager || isReceptionist || isSupervisor || isOwner;
+    const hasReservationPermission = user.permissions.includes('gestion_reservations');
+    
+    if (!canViewReceipt || !hasReservationPermission) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès non autorisé à ce reçu'
+      });
+    }
+
+    // Générer les URLs du reçu
+    const baseUrl = process.env.API_URL || 'http://localhost:5000';
+    const receiptUrl = `${baseUrl}/api/reservations/${req.params.id}/receipt`;
+    const downloadUrl = `${baseUrl}/api/reservations/${req.params.id}/receipt/download`;
+
+    res.json({
+      success: true,
+      receiptUrl,
+      downloadUrl,
+      reservationId: req.params.id,
+      message: 'URLs du reçu générées avec succès'
+    });
+
+  } catch (error) {
+    console.error('❌ Erreur génération URLs reçu:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la génération des URLs',
+      error: error.message
+    });
+  }
+};
+
 // -----------------------------------------------------------
 // 📊 STATISTIQUES avec Contrôle d'Accès Strict
 // -----------------------------------------------------------
@@ -1643,3 +1827,5 @@ exports.getPromoCodeStats = async (req, res) => {
     });
   }
 };
+
+module.exports = exports;
