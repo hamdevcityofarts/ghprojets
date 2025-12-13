@@ -6,7 +6,7 @@ dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
-// ✅ Définition des permissions disponibles
+// ✅ DÉFINITION CENTRALISÉE DES PERMISSIONS (identique au frontend AddUser)
 const PERMISSIONS = {
   GESTION_UTILISATEURS: 'gestion_utilisateurs',
   GESTION_CHAMBRES: 'gestion_chambres',
@@ -19,8 +19,8 @@ const PERMISSIONS = {
   GESTION_RESTAURANT: 'gestion_restaurant'
 };
 
-// ✅ Définition des rôles et leurs permissions par défaut
-const ROLE_PERMISSIONS = {
+// ✅ MAPPING DES RÔLES ET PERMISSIONS PAR DÉFAUT (identique au frontend AddUser)
+const ROLE_PERMISSIONS_MAP = {
   'admin': [
     PERMISSIONS.GESTION_UTILISATEURS,
     PERMISSIONS.GESTION_CHAMBRES,
@@ -57,10 +57,26 @@ const ROLE_PERMISSIONS = {
   'technician': [
     PERMISSIONS.GESTION_CHAMBRES
   ],
-  'client': [] // Clients n'ont pas de permissions par défaut
+  'client': []
 };
 
-// ✅ Middleware de protection des routes (authentification)
+// ✅ DÉFINITION DES DÉPARTEMENTS PAR DÉFAUT (identique au frontend AddUser)
+const ROLE_DEPARTMENT_MAP = {
+  'admin': 'direction',
+  'manager': 'direction',
+  'receptionist': 'reception',
+  'housekeeper': 'housekeeping',
+  'supervisor': 'direction',
+  'technician': 'maintenance'
+};
+
+// -----------------------------------------------------------
+// ✅ MIDDLEWARE D'AUTHENTIFICATION DE BASE
+// -----------------------------------------------------------
+
+/**
+ * 🔹 Middleware de protection des routes (authentification)
+ */
 exports.protect = async (req, res, next) => {
   let token;
   
@@ -89,8 +105,8 @@ exports.protect = async (req, res, next) => {
     }
     
     // Récupérer l'utilisateur depuis la base de données
-    req.user = await User.findById(userId).select('-password');
-    if (!req.user) {
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
       return res.status(401).json({ 
         success: false, 
         message: 'Utilisateur introuvable' 
@@ -98,7 +114,7 @@ exports.protect = async (req, res, next) => {
     }
     
     // Vérifier le statut actif
-    if (req.user.status !== 'actif') {
+    if (user.status !== 'actif') {
       return res.status(403).json({ 
         success: false, 
         message: 'Compte non actif. Contactez un administrateur.' 
@@ -106,14 +122,22 @@ exports.protect = async (req, res, next) => {
     }
     
     // Mettre à jour la dernière connexion
-    req.user.lastLogin = new Date();
-    await req.user.save();
+    user.lastLogin = new Date();
+    await user.save();
     
     // Ajouter des informations utiles à la requête
-    req.user.permissions = req.user.permissions || [];
-    req.user.role = req.user.role || 'client';
+    req.user = {
+      _id: user._id,
+      email: user.email,
+      name: user.name,
+      surname: user.surname,
+      role: user.role || 'client',
+      department: user.department,
+      permissions: user.permissions || [],
+      status: user.status
+    };
     
-    console.log(`🔐 Utilisateur authentifié: ${req.user.email} (${req.user.role})`);
+    console.log(`🔐 Utilisateur authentifié: ${user.email} (${user.role}) - Permissions: ${user.permissions?.length || 0}`);
     
     next();
   } catch (err) {
@@ -141,7 +165,9 @@ exports.protect = async (req, res, next) => {
 // ✅ MIDDLEWARE SPÉCIFIQUES PAR RÔLE
 // -----------------------------------------------------------
 
-// 🔹 Admin uniquement
+/**
+ * 🔹 Admin uniquement
+ */
 exports.admin = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -162,7 +188,9 @@ exports.admin = (req, res, next) => {
   });
 };
 
-// 🔹 Personnel uniquement (tous sauf client)
+/**
+ * 🔹 Personnel uniquement (tous sauf client)
+ */
 exports.staff = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -188,7 +216,9 @@ exports.staff = (req, res, next) => {
 // ✅ MIDDLEWARE SPÉCIFIQUES PAR MODULE (basés sur les permissions)
 // -----------------------------------------------------------
 
-// 🔹 Gestion des utilisateurs
+/**
+ * 🔹 Gestion des utilisateurs (admin uniquement)
+ */
 exports.userManagementAccess = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -197,15 +227,10 @@ exports.userManagementAccess = (req, res, next) => {
     });
   }
   
-  // Admin a toujours accès
-  if (req.user.role === 'admin') {
-    return next();
-  }
-  
   // Vérifier la permission spécifique
   const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_UTILISATEURS);
   
-  if (hasPermission) {
+  if (req.user.role === 'admin' || hasPermission) {
     console.log(`✅ Accès gestion utilisateurs accordé à: ${req.user.email} (${req.user.role})`);
     return next();
   }
@@ -217,7 +242,9 @@ exports.userManagementAccess = (req, res, next) => {
   });
 };
 
-// 🔹 Gestion des chambres
+/**
+ * 🔹 Gestion des chambres
+ */
 exports.roomManagementAccess = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -226,15 +253,10 @@ exports.roomManagementAccess = (req, res, next) => {
     });
   }
   
-  // Admin a toujours accès
-  if (req.user.role === 'admin') {
-    return next();
-  }
-  
   // Vérifier la permission spécifique
   const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_CHAMBRES);
   
-  if (hasPermission) {
+  if (req.user.role === 'admin' || hasPermission) {
     console.log(`✅ Accès gestion chambres accordé à: ${req.user.email} (${req.user.role})`);
     return next();
   }
@@ -246,7 +268,9 @@ exports.roomManagementAccess = (req, res, next) => {
   });
 };
 
-// 🔹 Gestion des réservations
+/**
+ * 🔹 Gestion des réservations
+ */
 exports.reservationAccess = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -255,15 +279,10 @@ exports.reservationAccess = (req, res, next) => {
     });
   }
   
-  // Admin a toujours accès
-  if (req.user.role === 'admin') {
-    return next();
-  }
-  
   // Vérifier la permission spécifique
   const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_RESERVATIONS);
   
-  if (hasPermission) {
+  if (req.user.role === 'admin' || hasPermission) {
     console.log(`✅ Accès gestion réservations accordé à: ${req.user.email} (${req.user.role})`);
     return next();
   }
@@ -275,7 +294,9 @@ exports.reservationAccess = (req, res, next) => {
   });
 };
 
-// 🔹 Gestion des clients
+/**
+ * 🔹 Gestion des clients
+ */
 exports.clientManagementAccess = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -284,15 +305,10 @@ exports.clientManagementAccess = (req, res, next) => {
     });
   }
   
-  // Admin a toujours accès
-  if (req.user.role === 'admin') {
-    return next();
-  }
-  
   // Vérifier la permission spécifique
   const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_CLIENTS);
   
-  if (hasPermission) {
+  if (req.user.role === 'admin' || hasPermission) {
     console.log(`✅ Accès gestion clients accordé à: ${req.user.email} (${req.user.role})`);
     return next();
   }
@@ -304,7 +320,9 @@ exports.clientManagementAccess = (req, res, next) => {
   });
 };
 
-// 🔹 Accès aux finances
+/**
+ * 🔹 Accès aux finances
+ */
 exports.financeAccess = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -313,15 +331,10 @@ exports.financeAccess = (req, res, next) => {
     });
   }
   
-  // Admin a toujours accès
-  if (req.user.role === 'admin') {
-    return next();
-  }
-  
   // Vérifier la permission spécifique
   const hasPermission = req.user.permissions.includes(PERMISSIONS.ACCES_FINANCES);
   
-  if (hasPermission) {
+  if (req.user.role === 'admin' || hasPermission) {
     console.log(`✅ Accès finances accordé à: ${req.user.email} (${req.user.role})`);
     return next();
   }
@@ -333,7 +346,9 @@ exports.financeAccess = (req, res, next) => {
   });
 };
 
-// 🔹 Accès aux rapports
+/**
+ * 🔹 Accès aux rapports
+ */
 exports.reportAccess = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -342,15 +357,10 @@ exports.reportAccess = (req, res, next) => {
     });
   }
   
-  // Admin a toujours accès
-  if (req.user.role === 'admin') {
-    return next();
-  }
-  
   // Vérifier la permission spécifique
   const hasPermission = req.user.permissions.includes(PERMISSIONS.RAPPORTS);
   
-  if (hasPermission) {
+  if (req.user.role === 'admin' || hasPermission) {
     console.log(`✅ Accès rapports accordé à: ${req.user.email} (${req.user.role})`);
     return next();
   }
@@ -362,7 +372,9 @@ exports.reportAccess = (req, res, next) => {
   });
 };
 
-// 🔹 Accès aux paramètres système
+/**
+ * 🔹 Accès aux paramètres système
+ */
 exports.systemAccess = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -371,15 +383,10 @@ exports.systemAccess = (req, res, next) => {
     });
   }
   
-  // Admin a toujours accès
-  if (req.user.role === 'admin') {
-    return next();
-  }
-  
   // Vérifier la permission spécifique
   const hasPermission = req.user.permissions.includes(PERMISSIONS.PARAMETRES_SYSTEME);
   
-  if (hasPermission) {
+  if (req.user.role === 'admin' || hasPermission) {
     console.log(`✅ Accès paramètres système accordé à: ${req.user.email} (${req.user.role})`);
     return next();
   }
@@ -391,7 +398,9 @@ exports.systemAccess = (req, res, next) => {
   });
 };
 
-// 🔹 Gestion du ménage
+/**
+ * 🔹 Gestion du ménage
+ */
 exports.housekeepingAccess = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -400,15 +409,10 @@ exports.housekeepingAccess = (req, res, next) => {
     });
   }
   
-  // Admin a toujours accès
-  if (req.user.role === 'admin') {
-    return next();
-  }
-  
   // Vérifier la permission spécifique
   const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_MENAGE);
   
-  if (hasPermission) {
+  if (req.user.role === 'admin' || hasPermission) {
     console.log(`✅ Accès gestion ménage accordé à: ${req.user.email} (${req.user.role})`);
     return next();
   }
@@ -420,7 +424,9 @@ exports.housekeepingAccess = (req, res, next) => {
   });
 };
 
-// 🔹 Gestion du restaurant
+/**
+ * 🔹 Gestion du restaurant
+ */
 exports.restaurantAccess = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -429,15 +435,10 @@ exports.restaurantAccess = (req, res, next) => {
     });
   }
   
-  // Admin a toujours accès
-  if (req.user.role === 'admin') {
-    return next();
-  }
-  
   // Vérifier la permission spécifique
   const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_RESTAURANT);
   
-  if (hasPermission) {
+  if (req.user.role === 'admin' || hasPermission) {
     console.log(`✅ Accès gestion restaurant accordé à: ${req.user.email} (${req.user.role})`);
     return next();
   }
@@ -450,10 +451,12 @@ exports.restaurantAccess = (req, res, next) => {
 };
 
 // -----------------------------------------------------------
-// ✅ MIDDLEWARE GÉNÉRIQUES POUR LES PERMISSIONS
+// ✅ MIDDLEWARE GÉNÉRIQUES POUR LES PERMISSIONS (compatibilité)
 // -----------------------------------------------------------
 
-// 🔹 Middleware requireRole (compatible avec votre code existant)
+/**
+ * 🔹 Middleware requireRole (compatible avec votre code existant)
+ */
 exports.requireRole = (...roles) => (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -474,7 +477,9 @@ exports.requireRole = (...roles) => (req, res, next) => {
   });
 };
 
-// 🔹 Middleware requirePermission (votre version existante)
+/**
+ * 🔹 Middleware requirePermission (votre version existante)
+ */
 exports.requirePermission = (...permissions) => (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ 
@@ -504,7 +509,9 @@ exports.requirePermission = (...permissions) => (req, res, next) => {
   });
 };
 
-// 🔹 Middleware restrictTo (pour compatibilité avec chambreRoutes.js)
+/**
+ * 🔹 Middleware restrictTo (pour compatibilité avec chambreRoutes.js)
+ */
 exports.restrictTo = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {
@@ -531,7 +538,9 @@ exports.restrictTo = (...roles) => {
 // ✅ FONCTIONS UTILITAIRES POUR LES PERMISSIONS
 // -----------------------------------------------------------
 
-// 🔹 Vérifier si un utilisateur a une permission spécifique
+/**
+ * 🔹 Vérifier si un utilisateur a une permission spécifique
+ */
 exports.hasPermission = (user, ...permissions) => {
   if (!user) return false;
   
@@ -542,18 +551,31 @@ exports.hasPermission = (user, ...permissions) => {
   return permissions.every(p => user.permissions.includes(p));
 };
 
-// 🔹 Vérifier si un utilisateur a un rôle spécifique
+/**
+ * 🔹 Vérifier si un utilisateur a un rôle spécifique
+ */
 exports.hasRole = (user, ...roles) => {
   if (!user) return false;
   return roles.includes(user.role);
 };
 
-// 🔹 Obtenir les permissions par défaut pour un rôle
+/**
+ * 🔹 Obtenir les permissions par défaut pour un rôle
+ */
 exports.getDefaultPermissionsForRole = (role) => {
-  return ROLE_PERMISSIONS[role] || [];
+  return ROLE_PERMISSIONS_MAP[role] || [];
 };
 
-// 🔹 Vérifier si un utilisateur peut accéder à un module spécifique
+/**
+ * 🔹 Obtenir le département par défaut pour un rôle
+ */
+exports.getDefaultDepartmentForRole = (role) => {
+  return ROLE_DEPARTMENT_MAP[role] || '';
+};
+
+/**
+ * 🔹 Vérifier si un utilisateur peut accéder à un module spécifique
+ */
 exports.canAccessModule = (user, module) => {
   if (!user) return false;
   
@@ -570,11 +592,14 @@ exports.canAccessModule = (user, module) => {
     'reports': PERMISSIONS.RAPPORTS,
     'system': PERMISSIONS.PARAMETRES_SYSTEME,
     'housekeeping': PERMISSIONS.GESTION_MENAGE,
-    'restaurant': PERMISSIONS.GESTION_RESTAURANT
+    'restaurant': PERMISSIONS.GESTION_RESTAURANT,
+    'dashboard': null // Le dashboard est accessible à tous les utilisateurs authentifiés
   };
   
   const requiredPermission = modulePermissions[module];
-  if (!requiredPermission) return false;
+  
+  // Si pas de permission requise (comme dashboard), accès accordé
+  if (!requiredPermission) return true;
   
   return user.permissions.includes(requiredPermission);
 };
@@ -583,7 +608,9 @@ exports.canAccessModule = (user, module) => {
 // ✅ MIDDLEWARE AVANCÉS POUR LE CONTRÔLE D'ACCÈS
 // -----------------------------------------------------------
 
-// 🔹 Middleware pour vérifier les permissions basées sur le modèle utilisateur
+/**
+ * 🔹 Middleware pour vérifier les permissions basées sur le modèle utilisateur
+ */
 exports.checkPermission = (...requiredPermissions) => {
   return (req, res, next) => {
     if (!req.user) {
@@ -617,7 +644,9 @@ exports.checkPermission = (...requiredPermissions) => {
   };
 };
 
-// 🔹 Middleware pour vérifier les permissions OU le rôle
+/**
+ * 🔹 Middleware pour vérifier les permissions OU le rôle
+ */
 exports.checkPermissionOrRole = (permissions = [], roles = []) => {
   return (req, res, next) => {
     if (!req.user) {
@@ -654,7 +683,9 @@ exports.checkPermissionOrRole = (permissions = [], roles = []) => {
   };
 };
 
-// 🔹 Middleware pour vérifier l'accès propriétaire (propriétaire de la ressource OU admin)
+/**
+ * 🔹 Middleware pour vérifier l'accès propriétaire (propriétaire de la ressource OU admin)
+ */
 exports.checkOwnershipOrAdmin = (resourceOwnerField = 'user') => {
   return (req, res, next) => {
     if (!req.user) {
@@ -692,7 +723,9 @@ exports.checkOwnershipOrAdmin = (resourceOwnerField = 'user') => {
 // ✅ MIDDLEWARE D'AUTHENTIFICATION OPTIONNELLE
 // -----------------------------------------------------------
 
-// 🔹 Authentification optionnelle (utile pour les routes publiques/privées)
+/**
+ * 🔹 Authentification optionnelle (utile pour les routes publiques/privées)
+ */
 exports.optionalAuth = async (req, res, next) => {
   try {
     let token;
@@ -722,18 +755,27 @@ exports.optionalAuth = async (req, res, next) => {
       }
       
       // Récupérer l'utilisateur
-      req.user = await User.findById(userId).select('-password');
+      const user = await User.findById(userId).select('-password');
       
-      if (!req.user) {
+      if (!user) {
         req.user = null;
       } else {
         // Vérifier le statut actif
-        if (req.user.status !== 'actif') {
+        if (user.status !== 'actif') {
           req.user = null;
           console.log('⚠️ Utilisateur non actif détecté dans optionalAuth');
         } else {
-          req.user.permissions = req.user.permissions || [];
-          console.log(`🔐 Utilisateur authentifié optionnel: ${req.user.email} (${req.user.role})`);
+          req.user = {
+            _id: user._id,
+            email: user.email,
+            name: user.name,
+            surname: user.surname,
+            role: user.role || 'client',
+            department: user.department,
+            permissions: user.permissions || [],
+            status: user.status
+          };
+          console.log(`🔐 Utilisateur authentifié optionnel: ${user.email} (${user.role})`);
         }
       }
     } catch (error) {
@@ -754,7 +796,9 @@ exports.optionalAuth = async (req, res, next) => {
 // ✅ MIDDLEWARE DE VALIDATION DE DONNÉES UTILISATEUR
 // -----------------------------------------------------------
 
-// 🔹 Valider que l'utilisateur a un rôle valide
+/**
+ * 🔹 Valider que l'utilisateur a un rôle valide
+ */
 exports.validateUserRole = (req, res, next) => {
   const validRoles = ['admin', 'manager', 'receptionist', 'housekeeper', 'supervisor', 'technician', 'client'];
   
@@ -776,7 +820,9 @@ exports.validateUserRole = (req, res, next) => {
   next();
 };
 
-// 🔹 Valider que l'utilisateur a des permissions valides
+/**
+ * 🔹 Valider que l'utilisateur a des permissions valides
+ */
 exports.validateUserPermissions = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({
@@ -803,13 +849,16 @@ exports.validateUserPermissions = (req, res, next) => {
 // ✅ FONCTION POUR GÉNÉRER DES POLITIQUES D'ACCÈS
 // -----------------------------------------------------------
 
-// 🔹 Générer une politique d'accès basée sur le rôle et les permissions
+/**
+ * 🔹 Générer une politique d'accès basée sur le rôle et les permissions
+ */
 exports.generateAccessPolicy = (user) => {
   if (!user) return { allowed: false, reason: 'Non authentifié' };
   
   const policy = {
     allowed: true,
     role: user.role,
+    department: user.department,
     permissions: user.permissions || [],
     modules: {}
   };
@@ -824,15 +873,51 @@ exports.generateAccessPolicy = (user) => {
     'reports': PERMISSIONS.RAPPORTS,
     'system': PERMISSIONS.PARAMETRES_SYSTEME,
     'housekeeping': PERMISSIONS.GESTION_MENAGE,
-    'restaurant': PERMISSIONS.GESTION_RESTAURANT
+    'restaurant': PERMISSIONS.GESTION_RESTAURANT,
+    'dashboard': null
   };
   
   Object.keys(modules).forEach(module => {
     policy.modules[module] = user.role === 'admin' || 
-                            user.permissions.includes(modules[module]);
+                            (modules[module] ? user.permissions.includes(modules[module]) : true);
   });
   
   return policy;
+};
+
+// -----------------------------------------------------------
+// ✅ UTILITAIRE POUR APPLIQUER LES PERMISSIONS PAR DÉFAUT
+// -----------------------------------------------------------
+
+/**
+ * 🔹 Appliquer les permissions par défaut selon le rôle (identique au frontend)
+ */
+exports.applyDefaultPermissions = (role) => {
+  if (!role) return [];
+  
+  const defaultPermissions = ROLE_PERMISSIONS_MAP[role] || [];
+  console.log('🎯 Application permissions par défaut pour rôle:', {
+    role,
+    permissionsParDefaut: defaultPermissions,
+    nombrePermissions: defaultPermissions.length
+  });
+  
+  return [...defaultPermissions];
+};
+
+/**
+ * 🔹 Appliquer le département par défaut selon le rôle (identique au frontend)
+ */
+exports.applyDefaultDepartment = (role) => {
+  if (!role) return '';
+  
+  const defaultDepartment = ROLE_DEPARTMENT_MAP[role] || '';
+  console.log('🎯 Département par défaut pour rôle:', {
+    role,
+    departementParDefaut: defaultDepartment
+  });
+  
+  return defaultDepartment;
 };
 
 // -----------------------------------------------------------
@@ -840,6 +925,7 @@ exports.generateAccessPolicy = (user) => {
 // -----------------------------------------------------------
 
 exports.PERMISSIONS = PERMISSIONS;
-exports.ROLE_PERMISSIONS = ROLE_PERMISSIONS;
+exports.ROLE_PERMISSIONS_MAP = ROLE_PERMISSIONS_MAP;
+exports.ROLE_DEPARTMENT_MAP = ROLE_DEPARTMENT_MAP;
 
 module.exports = exports;
