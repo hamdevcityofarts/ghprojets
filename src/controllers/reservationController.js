@@ -115,18 +115,22 @@ exports.createReservation = async (req, res) => {
       paymentMethod,
       paymentOption,
       nightsToPay,
-      codePromo
+      codePromo,
+      prixTotal  // ✅ NOUVEAU: Accepte le prixTotal du frontend
     } = req.body;
 
-    console.log('📥 Données reçues (Auth):', req.body);
-    console.log('👤 Utilisateur connecté:', req.user._id);
+    console.log('📥 Données reçues (Auth):', {
+      ...req.body,
+      prixTotalReçu: prixTotal,
+      utilisateur: req.user._id
+    });
 
     const chambre = await Chambre.findById(chambreId);
     if (!chambre) {
       return res.status(404).json({ success: false, message: 'Chambre non trouvée' });
     }
 
-    // --- Vérification de Disponibilité & Calcul des Nuits (Fonctionnalité complète) ---
+    // --- Vérification de Disponibilité & Calcul des Nuits ---
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
     const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
@@ -148,30 +152,30 @@ exports.createReservation = async (req, res) => {
     }
 
     // --- Calcul dynamique du montant selon l'option de paiement ---
-    let totalAmount, calculatedNightsToPay;
+    let calculatedAmount, calculatedNightsToPay;
 
     switch (paymentOption) {
       case 'first-night':
-        totalAmount = chambre.price;
+        calculatedAmount = chambre.price;
         calculatedNightsToPay = 1;
         break;
       case 'partial':
         const validNightsToPay = Math.min(nightsToPay || 1, nights);
-        totalAmount = chambre.price * validNightsToPay;
+        calculatedAmount = chambre.price * validNightsToPay;
         calculatedNightsToPay = validNightsToPay;
         break;
       case 'full':
       default:
-        totalAmount = chambre.price * nights;
+        calculatedAmount = chambre.price * nights;
         calculatedNightsToPay = nights;
         break;
     }
 
     // --- Gestion du code promo ---
-    let prixFinal = totalAmount;
+    let prixFinal = prixTotal || calculatedAmount; // ✅ Utilise prixTotal si fourni
     let codePromoApplique = null;
     let reduction = 0;
-    let prixOriginal = totalAmount;
+    let prixOriginal = calculatedAmount;
 
     if (codePromo) {
       try {
@@ -183,14 +187,21 @@ exports.createReservation = async (req, res) => {
         if (codePromoVerifie && codePromoVerifie.isValid()) {
           if (codePromoVerifie.applicableToAll || codePromoVerifie.chambres.includes(chambreId)) {
             if (nights >= codePromoVerifie.minimumStay) {
-              // Assurez-vous que calculateReducedPrice est défini sur le modèle CodePromo
-              prixFinal = codePromoVerifie.calculateReducedPrice(totalAmount);
-              reduction = totalAmount - prixFinal;
+              // Calculer la réduction pour le tracking
+              const prixAvecPromo = codePromoVerifie.calculateReducedPrice(calculatedAmount);
+              reduction = calculatedAmount - prixAvecPromo;
               codePromoApplique = codePromoVerifie._id;
 
               codePromoVerifie.utilisationActuelle += 1;
               await codePromoVerifie.save();
-              console.log('✅ Code promo appliqué:', codePromo);
+              
+              console.log('✅ Code promo appliqué:', {
+                code: codePromo,
+                montantOriginal: calculatedAmount,
+                reduction,
+                prixAvecPromoCalculé: prixAvecPromo,
+                prixFinalUtilisé: prixFinal
+              });
             }
           }
         }
@@ -199,9 +210,40 @@ exports.createReservation = async (req, res) => {
       }
     }
 
+    // ✅ VALIDATION DE SÉCURITÉ: Vérifier que prixTotal est raisonnable
+    if (prixTotal) {
+      const margeErreur = 0.1; // 10% de marge d'erreur
+      const montantMinimum = calculatedAmount * (1 - margeErreur);
+      const montantMaximum = calculatedAmount * (1 + margeErreur);
+      
+      if (prixTotal < montantMinimum || prixTotal > montantMaximum) {
+        console.warn('⚠️ Prix reçu du frontend hors plage acceptable:', {
+          prixReçu: prixTotal,
+          prixCalculé: calculatedAmount,
+          minimumAcceptable: montantMinimum,
+          maximumAcceptable: montantMaximum
+        });
+        
+        // Si la différence est trop grande, utiliser le prix calculé
+        if (Math.abs(prixTotal - calculatedAmount) > calculatedAmount * 0.2) {
+          console.log('⚠️ Différence trop importante, utilisation du prix calculé');
+          prixFinal = calculatedAmount;
+        }
+      }
+    }
+
+    console.log('💰 Résultat calculs prix:', {
+      prixParNuit: chambre.price,
+      nuits: nights,
+      montantCalculé: calculatedAmount,
+      prixFinalUtilisé: prixFinal,
+      prixReçuDuFrontend: prixTotal || 'Non fourni',
+      codePromo: codePromo || 'Aucun'
+    });
+
     // --- Création des données de réservation ---
     const reservationData = {
-      client: req.user._id, // Utilisateur connecté
+      client: req.user._id,
       chambre: chambreId,
       checkIn: checkInDate,
       checkOut: checkOutDate,
@@ -210,20 +252,20 @@ exports.createReservation = async (req, res) => {
       adults: parseInt(adults || 1),
       children: parseInt(children || 0),
       specialRequests: specialRequests || '',
-      totalAmount: prixFinal,
+      totalAmount: Math.round(prixFinal), // ✅ Prix final (avec réduction si applicable)
       currency: 'XAF',
       paymentMethod: paymentMethod || 'card',
       paymentOption: paymentOption || 'full',
       nightsToPay: calculatedNightsToPay,
-      amountPaid: prixFinal,
+      amountPaid: Math.round(prixFinal),
       status: 'pending_payment',
       source: 'website',
       codePromo: codePromoApplique,
       prixOriginal: prixOriginal,
-      reductionAppliquee: reduction,
+      reductionAppliquee: Math.round(reduction),
       codePromoUtilise: codePromo,
       paiement: {
-        amount: prixFinal,
+        amount: Math.round(prixFinal), // ✅ Montant à envoyer à Cybersource
         currency: 'XAF',
         method: paymentMethod || 'card',
         status: 'pending',
@@ -239,10 +281,20 @@ exports.createReservation = async (req, res) => {
     
     console.log('🔹 Données paiement préparées:', {
       hasCyberSource: paymentData.hasCyberSource,
-      form_data_present: !!paymentData.form_data,
-      form_action_present: !!paymentData.form_action,
+      montantRéservation: reservation.totalAmount,
+      montantCybersource: paymentData.form_data?.amount,
       fallbackReason: paymentData.fallbackReason || 'Aucun'
     });
+
+    // ✅ VÉRIFICATION FINALE: S'assurer que Cybersource reçoit le bon montant
+    if (paymentData.form_data && paymentData.form_data.amount) {
+      const montantCybersource = parseFloat(paymentData.form_data.amount);
+      if (Math.abs(montantCybersource - reservation.totalAmount) > 1) {
+        console.error('❌ ERREUR: Montant Cybersource incorrect! Correction...');
+        paymentData.form_data.amount = reservation.totalAmount.toString();
+        console.log('✅ Correction appliquée:', paymentData.form_data.amount);
+      }
+    }
 
     // ✅ MESSAGE ADAPTATIF SELON LA DISPONIBILITÉ CYBERSOURCE
     let message = '';
@@ -258,7 +310,13 @@ exports.createReservation = async (req, res) => {
       message: message,
       reservation,
       payment: paymentData,
-      reduction: reduction > 0 ? { appliquee: true, montant: reduction, code: codePromo } : { appliquee: false }
+      reduction: reduction > 0 ? { 
+        appliquee: true, 
+        montant: Math.round(reduction), 
+        code: codePromo,
+        prixOriginal: prixOriginal,
+        prixFinal: Math.round(prixFinal)
+      } : { appliquee: false }
     });
 
   } catch (error) {
@@ -292,23 +350,35 @@ exports.createReservationPublic = async (req, res) => {
       paymentOption,
       nightsToPay,
       codePromo,
-      clientInfo // Informations client pour les invités
+      clientInfo,
+      prixTotal  // ✅ CRITIQUE: Prix final envoyé par le frontend
     } = req.body;
 
     // --- Vérification ClientInfo (Nécessaire pour les réservations publiques) ---
     if (!clientInfo || !clientInfo.email || !clientInfo.name || !clientInfo.surname) {
-      return res.status(400).json({ success: false, message: 'Informations client (name, surname, email) requises pour la réservation publique.' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Informations client (name, surname, email) requises pour la réservation publique.' 
+      });
     }
 
-    console.log('📥 Données reçues (Public):', req.body);
-    console.log('👤 Client Invité:', clientInfo.email);
+    console.log('📥 Données reçues (Public):', {
+      chambreId,
+      checkIn,
+      checkOut,
+      paymentOption,
+      nightsToPay,
+      codePromo,
+      prixTotalReçu: prixTotal,
+      clientEmail: clientInfo.email
+    });
 
     const chambre = await Chambre.findById(chambreId);
     if (!chambre) {
       return res.status(404).json({ success: false, message: 'Chambre non trouvée' });
     }
 
-    // --- Vérification de Disponibilité & Calcul des Nuits (Identique à la fonction auth) ---
+    // --- Vérification de Disponibilité & Calcul des Nuits ---
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
     const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
@@ -329,31 +399,40 @@ exports.createReservationPublic = async (req, res) => {
       });
     }
 
-    // --- Calcul dynamique du montant (Identique à la fonction auth) ---
-    let totalAmount, calculatedNightsToPay;
+    // --- Calcul dynamique du montant pour validation ---
+    let calculatedAmount, calculatedNightsToPay;
     
     switch (paymentOption) {
       case 'first-night':
-        totalAmount = chambre.price;
+        calculatedAmount = chambre.price;
         calculatedNightsToPay = 1;
         break;
       case 'partial':
         const validNightsToPay = Math.min(nightsToPay || 1, nights);
-        totalAmount = chambre.price * validNightsToPay;
+        calculatedAmount = chambre.price * validNightsToPay;
         calculatedNightsToPay = validNightsToPay;
         break;
       case 'full':
       default:
-        totalAmount = chambre.price * nights;
+        calculatedAmount = chambre.price * nights;
         calculatedNightsToPay = nights;
         break;
     }
 
-    // --- Gestion du code promo (Identique à la fonction auth) ---
-    let prixFinal = totalAmount;
+    console.log('💰 Calculs backend (validation):', {
+      prixParNuit: chambre.price,
+      nuits: nights,
+      montantCalculéBackend: calculatedAmount,
+      prixReçuDuFrontend: prixTotal || 'Non fourni',
+      optionPaiement: paymentOption
+    });
+
+    // --- Gestion du code promo (pour tracking uniquement) ---
+    let prixFinal = prixTotal || calculatedAmount; // ✅ UTILISE LE PRIX DU FRONTEND
     let codePromoApplique = null;
     let reduction = 0;
-    let prixOriginal = totalAmount;
+    let prixOriginal = calculatedAmount;
+    let codePromoUtilise = null;
 
     if (codePromo) {
       try {
@@ -365,34 +444,88 @@ exports.createReservationPublic = async (req, res) => {
         if (codePromoVerifie && codePromoVerifie.isValid()) {
           if (codePromoVerifie.applicableToAll || codePromoVerifie.chambres.includes(chambreId)) {
             if (nights >= codePromoVerifie.minimumStay) {
-              prixFinal = codePromoVerifie.calculateReducedPrice(totalAmount);
-              reduction = totalAmount - prixFinal;
+              // Calculer la réduction pour le tracking
+              if (codePromoVerifie.type === 'percentage') {
+                reduction = (calculatedAmount * codePromoVerifie.value) / 100;
+              } else if (codePromoVerifie.type === 'fixed') {
+                reduction = Math.min(codePromoVerifie.value, calculatedAmount);
+              }
+              
               codePromoApplique = codePromoVerifie._id;
+              codePromoUtilise = codePromo.toUpperCase();
 
+              // Incrémenter l'utilisation
               codePromoVerifie.utilisationActuelle += 1;
               await codePromoVerifie.save();
-              console.log('✅ Code promo appliqué (Public):', codePromo);
+
+              console.log('✅ Code promo validé (Public):', {
+                code: codePromo,
+                type: codePromoVerifie.type,
+                valeur: codePromoVerifie.value,
+                reductionCalculée: reduction,
+                montantOriginal: calculatedAmount,
+                montantAvecPromoCalculé: calculatedAmount - reduction,
+                prixFinalUtilisé: prixFinal
+              });
             }
           }
+        } else {
+          console.log('⚠️ Code promo non valide ou expiré:', codePromo);
         }
       } catch (error) {
         console.warn('⚠️ Erreur vérification code promo (Public):', error);
       }
     }
+
+    // ✅ VALIDATION DE SÉCURITÉ: Vérifier que prixTotal est raisonnable
+    if (prixTotal) {
+      const margeErreur = 0.15; // 15% de marge d'erreur
+      const montantMinimum = calculatedAmount * (1 - margeErreur);
+      const montantMaximum = calculatedAmount * (1 + margeErreur);
+      
+      if (prixTotal < montantMinimum || prixTotal > montantMaximum) {
+        console.warn('⚠️ Prix reçu du frontend hors plage acceptable (Public):', {
+          prixReçu: prixTotal,
+          prixCalculé: calculatedAmount,
+          minimumAcceptable: Math.round(montantMinimum),
+          maximumAcceptable: Math.round(montantMaximum),
+          différence: Math.round(Math.abs(prixTotal - calculatedAmount))
+        });
+        
+        // Si la différence est trop grande (>20%), utiliser le prix calculé
+        if (Math.abs(prixTotal - calculatedAmount) > calculatedAmount * 0.2) {
+          console.log('⚠️ Différence trop importante, utilisation du prix calculé (Public)');
+          prixFinal = Math.round(calculatedAmount);
+        } else {
+          // Sinon, utiliser le prix du frontend mais avec un warning
+          prixFinal = Math.round(prixTotal);
+        }
+      } else {
+        prixFinal = Math.round(prixTotal);
+      }
+    } else {
+      // Si pas de prixTotal fourni, utiliser le prix calculé
+      prixFinal = Math.round(calculatedAmount);
+    }
+
+    console.log('✅ Prix final déterminé (Public):', {
+      prixFinal,
+      source: prixTotal ? 'Frontend' : 'Backend',
+      codePromo: codePromoUtilise || 'Aucun'
+    });
     
     // --- CORRECTION CRITIQUE : Gestion du Client avec rôle VALIDE ---
     let guestUser = await User.findOne({ email: clientInfo.email.toLowerCase() });
     
     if (!guestUser) {
-      // CORRECTION : Utiliser 'client' au lieu de 'guest' qui n'est pas dans l'enum
       guestUser = await User.create({
         name: clientInfo.name.trim(),
         surname: clientInfo.surname.trim(),
         email: clientInfo.email.toLowerCase().trim(),
         phone: clientInfo.phone || '',
-        password: crypto.randomBytes(10).toString('hex'), // Mot de passe aléatoire
-        role: 'client', // ✅ CORRECTION : Utiliser 'client' au lieu de 'guest'
-        isTemporary: true // Champ optionnel pour identifier les comptes temporaires
+        password: crypto.randomBytes(10).toString('hex'),
+        role: 'client',
+        isTemporary: true
       });
       console.log('👤 Compte client temporaire créé:', guestUser._id, 'avec rôle:', guestUser.role);
     } else {
@@ -401,7 +534,7 @@ exports.createReservationPublic = async (req, res) => {
 
     // --- Création des données de réservation ---
     const reservationData = {
-      client: guestUser._id, // Utiliser l'ID du compte client temporaire
+      client: guestUser._id,
       chambre: chambreId,
       checkIn: checkInDate,
       checkOut: checkOutDate,
@@ -410,20 +543,20 @@ exports.createReservationPublic = async (req, res) => {
       adults: parseInt(adults || 1),
       children: parseInt(children || 0),
       specialRequests: specialRequests || '',
-      totalAmount: prixFinal,
+      totalAmount: prixFinal, // ✅ PRIX FINAL DÉTERMINÉ
       currency: 'XAF',
       paymentMethod: paymentMethod || 'card',
       paymentOption: paymentOption || 'full',
       nightsToPay: calculatedNightsToPay,
       amountPaid: prixFinal,
       status: 'pending_payment',
-      source: 'public_website', // Source spécifique
+      source: 'public_website',
       codePromo: codePromoApplique,
       prixOriginal: prixOriginal,
-      reductionAppliquee: reduction,
-      codePromoUtilise: codePromo,
+      reductionAppliquee: Math.round(reduction),
+      codePromoUtilise: codePromoUtilise,
       paiement: {
-        amount: prixFinal,
+        amount: prixFinal, // ✅ MÊME MONTANT POUR CYBERSOURCE
         currency: 'XAF',
         method: paymentMethod || 'card',
         status: 'pending',
@@ -434,15 +567,36 @@ exports.createReservationPublic = async (req, res) => {
     const reservation = await Reservation.create(reservationData);
     await reservation.populate('chambre client');
 
-    // Préparer les données pour Secure Acceptance (utiliser clientInfo)
+    // Préparer les données pour Secure Acceptance
     const paymentData = preparePaymentData(reservation, null, clientInfo);
     
     console.log('🔹 Données paiement préparées (Public):', {
       hasCyberSource: paymentData.hasCyberSource,
-      form_data_present: !!paymentData.form_data,
-      form_action_present: !!paymentData.form_action,
-      fallbackReason: paymentData.fallbackReason || 'Aucun'
+      montantRéservation: reservation.totalAmount,
+      montantCybersource: paymentData.form_data?.amount,
+      fallbackReason: paymentData.fallbackReason || 'Aucun',
+      codePromo: codePromoUtilise || 'Aucun'
     });
+
+    // ✅ VÉRIFICATION CRITIQUE: S'assurer que Cybersource reçoit exactement le bon montant
+    if (paymentData.form_data && paymentData.form_data.amount) {
+      const montantCybersource = parseFloat(paymentData.form_data.amount);
+      const montantRéservation = reservation.totalAmount;
+      
+      if (Math.abs(montantCybersource - montantRéservation) > 1) {
+        console.error('❌ ERREUR CRITIQUE: Montant Cybersource incorrect!', {
+          montantRéservation,
+          montantCybersource,
+          différence: Math.abs(montantCybersource - montantRéservation)
+        });
+        
+        // Correction forcée
+        paymentData.form_data.amount = montantRéservation.toString();
+        console.log('✅ Correction appliquée (Public):', paymentData.form_data.amount);
+      } else {
+        console.log('✅ Montant Cybersource correct:', paymentData.form_data.amount);
+      }
+    }
 
     // ✅ MESSAGE ADAPTATIF SELON LA DISPONIBILITÉ CYBERSOURCE
     let message = '';
@@ -458,7 +612,13 @@ exports.createReservationPublic = async (req, res) => {
       message: message,
       reservation,
       payment: paymentData,
-      reduction: reduction > 0 ? { appliquee: true, montant: reduction, code: codePromo } : { appliquee: false }
+      reduction: reduction > 0 ? { 
+        appliquee: true, 
+        montant: Math.round(reduction), 
+        code: codePromoUtilise,
+        prixOriginal: prixOriginal,
+        prixFinal: prixFinal
+      } : { appliquee: false }
     });
 
   } catch (error) {
@@ -515,6 +675,8 @@ exports.paymentCallback = async (req, res) => {
       await reservation.save();
 
       console.log('✅ Paiement confirmé pour réservation:', reservationId);
+      console.log('💰 Montant payé:', auth_amount, req_currency);
+      console.log('🎟️ Code promo utilisé:', reservation.codePromoUtilise || 'AUCUN');
 
       return res.redirect(`${process.env.FRONTEND_URL}/payment/success?reservation=${reservationId}`);
     } else {
@@ -740,7 +902,7 @@ exports.cancelReservation = async (req, res) => {
 
     reservation.status = 'cancelled';
     if (reservation.paiement) {
-      reservation.paiement.status = 'refunded'; // Simuler un remboursement
+      reservation.paiement.status = 'refunded';
     }
 
     await reservation.save();
@@ -823,7 +985,7 @@ exports.deleteReservation = async (req, res) => {
       });
     }
 
-    // Vérifier si la réservation peut être supprimée (protection contre la suppression de réservations actives)
+    // Vérifier si la réservation peut être supprimée
     const protectedStatuses = ['confirmed', 'completed', 'partially_paid'];
     if (protectedStatuses.includes(reservation.status)) {
       return res.status(400).json({
@@ -903,7 +1065,6 @@ exports.getPromoCodeStats = async (req, res) => {
     });
   }
 };
-
 
 // -----------------------------------------------------------
 // 🧾 FONCTIONS DE REÇU
@@ -994,6 +1155,7 @@ function generateReceiptHTML(reservation) {
   // ...
   return htmlContent;
 }
+
 /**
  * 🔹 Télécharger le reçu en PDF (option simplifiée)
  */
