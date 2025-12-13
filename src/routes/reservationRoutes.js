@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const reservationController = require('../controllers/reservationController');
-const { protect, admin } = require('../middlewares/authMiddleware');
+const { protect, admin, reservationAccess } = require('../middlewares/authMiddleware');
 
 /**
  * @swagger
@@ -255,7 +255,14 @@ router.post('/', protect, reservationController.createReservation);
  * @swagger
  * /api/reservations:
  *   get:
- *     summary: Récupérer la liste des réservations
+ *     summary: Récupérer la liste des réservations (avec contrôle d'accès basé sur les permissions)
+ *     description: |
+ *       Accès contrôlé par les permissions:
+ *       - Admin: Toutes les réservations
+ *       - Manager: Toutes les réservations
+ *       - Receptionist: Toutes les réservations
+ *       - Supervisor: Toutes les réservations
+ *       - Autres rôles: Accès refusé
  *     tags: [Reservations]
  *     security:
  *       - bearerAuth: []
@@ -283,6 +290,18 @@ router.post('/', protect, reservationController.createReservation);
  *         schema:
  *           type: string
  *         description: Rechercher par nom client ou numéro de chambre
+ *       - in: query
+ *         name: dateFrom
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filtrer à partir de cette date (YYYY-MM-DD)
+ *       - in: query
+ *         name: dateTo
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filtrer jusqu'à cette date (YYYY-MM-DD)
  *     responses:
  *       200:
  *         description: Liste des réservations récupérée avec succès
@@ -303,10 +322,12 @@ router.post('/', protect, reservationController.createReservation);
  *                     $ref: '#/components/schemas/Reservation'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Accès refusé - Droits insuffisants
  *       500:
  *         description: Erreur serveur
  */
-router.get('/', protect, reservationController.getReservations);
+router.get('/', protect, reservationAccess, reservationController.getReservations);
 
 /**
  * @swagger
@@ -340,7 +361,7 @@ router.get('/', protect, reservationController.getReservations);
  *       500:
  *         description: Erreur serveur
  */
-router.get('/:id', protect, reservationController.getReservationById);
+router.get('/:id', protect, reservationAccess, reservationController.getReservationById);
 
 /**
  * @swagger
@@ -399,7 +420,7 @@ router.get('/:id', protect, reservationController.getReservationById);
  *       500:
  *         description: Erreur serveur
  */
-router.put('/:id', protect, reservationController.updateReservation);
+router.put('/:id', protect, reservationAccess, reservationController.updateReservation);
 
 /**
  * @swagger
@@ -434,7 +455,7 @@ router.put('/:id', protect, reservationController.updateReservation);
  *       500:
  *         description: Erreur serveur
  */
-router.put('/:id/cancel', protect, reservationController.cancelReservation);
+router.put('/:id/cancel', protect, reservationAccess, reservationController.cancelReservation);
 
 /**
  * @swagger
@@ -689,7 +710,7 @@ router.post('/payment/callback', reservationController.paymentCallback);
  *       500:
  *         description: Erreur serveur
  */
-router.put('/:id/annuler', protect, reservationController.cancelReservation);
+router.put('/:id/annuler', protect, reservationAccess, reservationController.cancelReservation);
 
 /**
  * @swagger
@@ -771,7 +792,7 @@ router.get('/user/:userId', protect, admin, reservationController.getUserReserva
  *       500:
  *         description: Erreur lors de la génération du reçu
  */
-router.get('/:id/receipt', protect, reservationController.generateReceipt);
+router.get('/:id/receipt', protect, reservationAccess, reservationController.generateReceipt);
 
 /**
  * @swagger
@@ -800,7 +821,7 @@ router.get('/:id/receipt', protect, reservationController.generateReceipt);
  *       500:
  *         description: Erreur lors du téléchargement du reçu
  */
-router.get('/:id/receipt/download', protect, reservationController.downloadReceipt);
+router.get('/:id/receipt/download', protect, reservationAccess, reservationController.downloadReceipt);
 
 /**
  * @swagger
@@ -846,7 +867,7 @@ router.get('/:id/receipt/download', protect, reservationController.downloadRecei
  *       500:
  *         description: Erreur lors de la génération des URLs
  */
-router.get('/:id/receipt/url', protect, reservationController.getReceiptUrl);
+router.get('/:id/receipt/url', protect, reservationAccess, reservationController.getReceiptUrl);
 
 /**
  * @swagger
@@ -984,145 +1005,5 @@ router.get('/stats/overview', protect, admin, reservationController.getReservati
  *         description: Erreur serveur
  */
 router.get('/stats/promo-codes', protect, admin, reservationController.getPromoCodeStats);
-
-// Dans le fichier reservationRoutes.js, ajoutez ces routes AVANT la route principale GET:
-
-// ... (le reste de votre code existant reste inchangé) ...
-
-/**
- * @swagger
- * /api/reservations/staff:
- *   get:
- *     summary: Récupérer les réservations (accès personnel uniquement)
- *     description: |
- *       Accès réservé au personnel (admin, manager, receptionist, supervisor).
- *       Retourne TOUTES les réservations avec options de filtrage.
- *     tags: [Reservations]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *         description: Numéro de page pour la pagination
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *         description: Nombre d'éléments par page
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [pending, pending_payment, confirmed, cancelled, completed, payment_failed, partially_paid]
- *         description: Filtrer par statut
- *       - in: query
- *         name: search
- *         schema:
- *           type: string
- *         description: Rechercher par nom client, email, téléphone ou numéro de chambre
- *       - in: query
- *         name: dateFrom
- *         schema:
- *           type: string
- *           format: date
- *         description: Filtrer à partir de cette date (YYYY-MM-DD)
- *       - in: query
- *         name: dateTo
- *         schema:
- *           type: string
- *           format: date
- *         description: Filtrer jusqu'à cette date (YYYY-MM-DD)
- *     responses:
- *       200:
- *         description: Liste des réservations récupérée avec succès
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 count:
- *                   type: number
- *                   example: 5
- *                 reservations:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Reservation'
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         description: Accès refusé - droits insuffisants
- *       500:
- *         description: Erreur serveur
- */
-router.get('/staff', protect, reservationController.getReservations);
-
-/**
- * @swagger
- * /api/reservations:
- *   get:
- *     summary: Récupérer les réservations (pour tous les utilisateurs)
- *     description: |
- *       Pour les clients: retourne uniquement leurs propres réservations.
- *       Pour le personnel: retourne toutes les réservations.
- *     tags: [Reservations]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *         description: Numéro de page pour la pagination
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *         description: Nombre d'éléments par page
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [pending, pending_payment, confirmed, cancelled, completed, payment_failed, partially_paid]
- *         description: Filtrer par statut
- *       - in: query
- *         name: search
- *         schema:
- *           type: string
- *         description: Rechercher par nom client ou numéro de chambre
- *     responses:
- *       200:
- *         description: Liste des réservations récupérée avec succès
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 count:
- *                   type: number
- *                   example: 5
- *                 reservations:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Reservation'
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
- *       500:
- *         description: Erreur serveur
- */
-router.get('/', protect, reservationController.getReservations);
-
-// ... (le reste de votre code existant reste inchangé) ...
 
 module.exports = router;
