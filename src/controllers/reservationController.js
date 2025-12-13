@@ -1,3 +1,4 @@
+// src/controllers/reservationController.js
 const Reservation = require('../models/reservationModel');
 const Chambre = require('../models/chambreModel');
 const User = require('../models/userModel');
@@ -699,37 +700,149 @@ exports.paymentCallback = async (req, res) => {
 };
 
 // -----------------------------------------------------------
-// 🔍 Fonctions de Lecture (Lecture)
+// 🔍 Fonctions de Lecture (Lecture) - MODIFIÉ POUR RESPECTER LES PERMISSIONS
 // -----------------------------------------------------------
 
 /**
- * 🔹 Récupérer toutes les réservations (Admin ou Utilisateur personnel).
+ * 🔹 Récupérer toutes les réservations avec contrôle d'accès basé sur les permissions
  */
 exports.getReservations = async (req, res) => {
   try {
+    const user = req.user;
     let reservations;
 
-    if (req.user.role === 'admin') {
-      // ADMIN: Voir toutes les réservations avec infos client complètes
-      reservations = await Reservation.find()
-        .populate('client', 'name surname email phone')
-        .populate('chambre', 'number name type price currency')
-        .populate('codePromo', 'code description');
-    } else {
-      // UTILISATEUR: Voir uniquement SES réservations
-      reservations = await Reservation.find({
-          client: req.user._id
+    console.log(`👤 Récupération réservations pour utilisateur:`, {
+      id: user._id,
+      role: user.role,
+      permissions: user.permissions,
+      email: user.email
+    });
+
+    // ✅ DÉFINITION DES RÔLES AUTORISÉS SELON LE FRONTEND AddUser
+    const canViewAllReservations = ['admin', 'manager', 'receptionist', 'supervisor'].includes(user.role);
+    const hasReservationPermission = user.permissions.includes('gestion_reservations');
+    
+    console.log('🔍 Vérification accès:', {
+      canViewAllReservations,
+      hasReservationPermission,
+      roleAutorisé: canViewAllReservations,
+      permissionAutorisée: hasReservationPermission
+    });
+
+    if (canViewAllReservations && hasReservationPermission) {
+      // ✅ PERSONNEL AUTORISÉ: Voir TOUTES les réservations
+      console.log(`👁️  ${user.role} visualise TOUTES les réservations (permission accordée)`);
+      
+      // Construire la requête avec filtres
+      let query = Reservation.find();
+      
+      // Filtre par statut si fourni dans la requête
+      if (req.query.status && req.query.status !== 'all') {
+        query = query.where('status').equals(req.query.status);
+        console.log(`🔍 Filtre statut appliqué: ${req.query.status}`);
+      }
+      
+      // Recherche par nom client, email, téléphone ou numéro de chambre
+      if (req.query.search) {
+        const searchRegex = new RegExp(req.query.search, 'i');
+        console.log(`🔍 Recherche appliquée: "${req.query.search}"`);
+        
+        // Trouver les chambres correspondant à la recherche
+        const chambresTrouvees = await Chambre.find({
+          $or: [
+            { number: searchRegex },
+            { name: searchRegex }
+          ]
+        }).select('_id');
+        
+        const chambreIds = chambresTrouvees.map(c => c._id);
+        
+        query = query.or([
+          { 'clientInfo.name': searchRegex },
+          { 'clientInfo.surname': searchRegex },
+          { 'clientInfo.email': searchRegex },
+          { 'clientInfo.phone': { $regex: searchRegex } },
+          { chambre: { $in: chambreIds } }
+        ]);
+      }
+      
+      // Filtre par date si fourni
+      if (req.query.dateFrom) {
+        const dateFrom = new Date(req.query.dateFrom);
+        query = query.where('checkIn').gte(dateFrom);
+        console.log(`📅 Filtre dateFrom: ${req.query.dateFrom}`);
+      }
+      
+      if (req.query.dateTo) {
+        const dateTo = new Date(req.query.dateTo);
+        query = query.where('checkOut').lte(dateTo);
+        console.log(`📅 Filtre dateTo: ${req.query.dateTo}`);
+      }
+      
+      // Pagination
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const skip = (page - 1) * limit;
+      
+      query = query.skip(skip).limit(limit);
+      
+      // Tri par date de création décroissante (les plus récentes d'abord)
+      query = query.sort({ createdAt: -1 });
+      
+      // Compter le total pour la pagination
+      const totalCount = await Reservation.countDocuments(query.getFilter());
+      
+      // Exécuter la requête avec les populations complètes
+      reservations = await query
+        .populate({
+          path: 'client',
+          select: 'name surname email phone',
+          match: { role: { $ne: 'client' } } // Exclure les clients standards si nécessaire
         })
-        .populate('chambre', 'number name type price currency images')
-        .populate('codePromo', 'code description');
+        .populate('chambre', 'number name type price currency status')
+        .populate('codePromo', 'code description type value');
+        
+      console.log(`📊 ${reservations.length} réservation(s) trouvée(s) sur ${totalCount} total`);
+      
+    } else {
+      // ❌ ACCÈS REFUSÉ: L'utilisateur n'a pas les permissions nécessaires
+      console.log(`⛔ ${user.role} n'a pas accès aux réservations`);
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé. Permissions insuffisantes pour visualiser les réservations.'
+      });
     }
 
-    console.log(`📊 ${reservations.length} réservation(s) récupérée(s) pour l'utilisateur:`, req.user._id);
+    // Formater les réservations pour le frontend
+    const formattedReservations = reservations.map(reservation => {
+      const reservationObj = reservation.toObject();
+      
+      // S'assurer que le client existe
+      if (!reservationObj.client) {
+        reservationObj.client = {
+          name: reservationObj.clientInfo?.name || 'N/A',
+          surname: reservationObj.clientInfo?.surname || 'N/A',
+          email: reservationObj.clientInfo?.email || 'N/A',
+          phone: reservationObj.clientInfo?.phone || 'N/A'
+        };
+      }
+      
+      // Calculer les nuits si manquant
+      if (!reservationObj.nuits && reservationObj.nights) {
+        reservationObj.nuits = reservationObj.nights;
+      }
+      
+      return reservationObj;
+    });
 
     res.json({
       success: true,
-      count: reservations.length,
-      reservations
+      count: formattedReservations.length,
+      reservations: formattedReservations,
+      totalCount: formattedReservations.length, // Pour la pagination frontend
+      page: parseInt(req.query.page) || 1,
+      limit: parseInt(req.query.limit) || 10,
+      hasMore: formattedReservations.length === (parseInt(req.query.limit) || 10)
     });
 
   } catch (error) {
@@ -743,12 +856,12 @@ exports.getReservations = async (req, res) => {
 };
 
 /**
- * 🔹 Récupérer une réservation par ID (vérification des permissions Admin/Propriétaire).
+ * 🔹 Récupérer une réservation par ID avec contrôle d'accès basé sur les permissions
  */
 exports.getReservationById = async (req, res) => {
   try {
     const reservation = await Reservation.findById(req.params.id)
-      .populate('client', 'name surname email phone')
+      .populate('client', 'name surname email phone role permissions')
       .populate('chambre', 'number name type price currency images amenities')
       .populate('codePromo', 'code description type value');
 
@@ -759,11 +872,32 @@ exports.getReservationById = async (req, res) => {
       });
     }
 
-    // Vérifier les permissions: admin OU propriétaire de la réservation
-    const isAdmin = req.user.role === 'admin';
-    const isOwner = reservation.client && reservation.client._id.equals(req.user._id);
+    const user = req.user;
+    const isAdmin = user.role === 'admin';
+    const isManager = user.role === 'manager';
+    const isReceptionist = user.role === 'receptionist';
+    const isSupervisor = user.role === 'supervisor';
+    const isOwner = reservation.client && reservation.client._id.equals(user._id);
+    
+    // Vérifier les permissions basées sur le rôle et les permissions
+    const canAccessReservation = isAdmin || isManager || isReceptionist || isSupervisor || isOwner;
+    const hasReservationPermission = user.permissions.includes('gestion_reservations');
+    
+    console.log('🔍 Vérification accès réservation détaillée:', {
+      userId: user._id,
+      userRole: user.role,
+      userPermissions: user.permissions,
+      reservationClientId: reservation.client?._id,
+      isAdmin,
+      isManager,
+      isReceptionist,
+      isSupervisor,
+      isOwner,
+      canAccessReservation,
+      hasReservationPermission
+    });
 
-    if (!isAdmin && !isOwner) {
+    if (!canAccessReservation || !hasReservationPermission) {
       return res.status(403).json({
         success: false,
         message: 'Accès non autorisé à cette réservation'
@@ -786,14 +920,37 @@ exports.getReservationById = async (req, res) => {
 };
 
 /**
- * 🔹 Récupérer les réservations d'un utilisateur spécifique (Admin ou l'utilisateur lui-même).
+ * 🔹 Récupérer les réservations d'un utilisateur spécifique avec contrôle d'accès
  */
 exports.getUserReservations = async (req, res) => {
   try {
     const userId = req.params.userId;
+    const user = req.user;
     
-    // Vérification des permissions: admin OU l'utilisateur dont on veut voir les réservations
-    if (req.user.role !== 'admin' && !req.user._id.equals(userId)) {
+    // Vérification des permissions
+    const isAdmin = user.role === 'admin';
+    const isManager = user.role === 'manager';
+    const isReceptionist = user.role === 'receptionist';
+    const isSupervisor = user.role === 'supervisor';
+    const isRequestingOwnData = user._id.equals(userId);
+    
+    const canViewUserReservations = isAdmin || isManager || isReceptionist || isSupervisor || isRequestingOwnData;
+    const hasClientPermission = user.permissions.includes('gestion_clients');
+    
+    console.log('🔍 Vérification accès réservations utilisateur:', {
+      userId: user._id,
+      targetUserId: userId,
+      userRole: user.role,
+      isAdmin,
+      isManager,
+      isReceptionist,
+      isSupervisor,
+      isRequestingOwnData,
+      canViewUserReservations,
+      hasClientPermission
+    });
+
+    if (!canViewUserReservations || !hasClientPermission) {
       return res.status(403).json({
         success: false,
         message: 'Accès non autorisé à ces réservations.'
@@ -826,15 +983,16 @@ exports.getUserReservations = async (req, res) => {
 };
 
 // -----------------------------------------------------------
-// ✏️ Fonctions de Modification (Admin/Propriétaire)
+// ✏️ Fonctions de Modification avec Contrôle d'Accès
 // -----------------------------------------------------------
 
 /**
- * 🔹 Mettre à jour une réservation (Admin ou Proprio).
+ * 🔹 Mettre à jour une réservation avec contrôle d'accès
  */
 exports.updateReservation = async (req, res) => {
   try {
-    const reservation = await Reservation.findById(req.params.id);
+    const reservation = await Reservation.findById(req.params.id)
+      .populate('client');
 
     if (!reservation) {
       return res.status(404).json({
@@ -843,21 +1001,92 @@ exports.updateReservation = async (req, res) => {
       });
     }
 
-    // Vérifier les permissions
-    if (req.user.role !== 'admin' && reservation.client && !reservation.client.equals(req.user._id)) {
+    const user = req.user;
+    const isAdmin = user.role === 'admin';
+    const isManager = user.role === 'manager';
+    const isReceptionist = user.role === 'receptionist';
+    const isSupervisor = user.role === 'supervisor';
+    const isOwner = reservation.client && reservation.client._id.equals(user._id);
+    
+    const canUpdateReservation = isAdmin || isManager || isReceptionist || isSupervisor;
+    const hasReservationPermission = user.permissions.includes('gestion_reservations');
+    
+    console.log('🔍 Vérification mise à jour réservation:', {
+      userId: user._id,
+      userRole: user.role,
+      canUpdateReservation,
+      hasReservationPermission,
+      isOwner
+    });
+
+    // Seuls les rôles autorisés peuvent modifier (pas les propriétaires sauf si admin)
+    if (!canUpdateReservation || !hasReservationPermission) {
       return res.status(403).json({
         success: false,
-        message: 'Accès non autorisé'
+        message: 'Accès non autorisé pour modifier cette réservation'
+      });
+    }
+
+    // Vérifier les champs autorisés à modifier selon le rôle
+    const allowedFields = {};
+    const updateData = req.body;
+    
+    // Admin peut tout modifier
+    if (isAdmin) {
+      Object.assign(allowedFields, updateData);
+    } 
+    // Manager peut modifier la plupart des champs sauf paiement
+    else if (isManager) {
+      const managerAllowedFields = [
+        'checkIn', 'checkOut', 'adults', 'children', 
+        'specialRequests', 'status', 'chambre'
+      ];
+      
+      managerAllowedFields.forEach(field => {
+        if (updateData[field] !== undefined) {
+          allowedFields[field] = updateData[field];
+        }
+      });
+    }
+    // Réceptionniste peut modifier seulement certains champs
+    else if (isReceptionist) {
+      const receptionistAllowedFields = [
+        'checkIn', 'checkOut', 'adults', 'children', 
+        'specialRequests'
+      ];
+      
+      receptionistAllowedFields.forEach(field => {
+        if (updateData[field] !== undefined) {
+          allowedFields[field] = updateData[field];
+        }
+      });
+    }
+    // Superviseur peut modifier comme manager
+    else if (isSupervisor) {
+      const supervisorAllowedFields = [
+        'checkIn', 'checkOut', 'adults', 'children', 
+        'specialRequests', 'status'
+      ];
+      
+      supervisorAllowedFields.forEach(field => {
+        if (updateData[field] !== undefined) {
+          allowedFields[field] = updateData[field];
+        }
       });
     }
 
     const updatedReservation = await Reservation.findByIdAndUpdate(
       req.params.id,
-      req.body, {
+      allowedFields, {
         new: true,
         runValidators: true
       }
     ).populate('client chambre codePromo');
+
+    console.log(`✅ Réservation ${req.params.id} mise à jour par ${user.role}:`, {
+      updatedFields: Object.keys(allowedFields),
+      user: user.email
+    });
 
     res.json({
       success: true,
@@ -876,12 +1105,12 @@ exports.updateReservation = async (req, res) => {
 };
 
 /**
- * 🔹 Annuler une réservation (Admin ou Proprio).
+ * 🔹 Annuler une réservation avec contrôle d'accès
  */
 exports.cancelReservation = async (req, res) => {
   try {
     const reservation = await Reservation.findById(req.params.id)
-      .populate('client', 'email name')
+      .populate('client', 'email name role')
       .populate('chambre')
       .populate('codePromo');
 
@@ -892,11 +1121,37 @@ exports.cancelReservation = async (req, res) => {
       });
     }
 
-    // Vérifier les permissions
-    if (req.user.role !== 'admin' && reservation.client && !reservation.client._id.equals(req.user._id)) {
+    const user = req.user;
+    const isAdmin = user.role === 'admin';
+    const isManager = user.role === 'manager';
+    const isReceptionist = user.role === 'receptionist';
+    const isSupervisor = user.role === 'supervisor';
+    const isOwner = reservation.client && reservation.client._id.equals(user._id);
+    
+    const canCancelReservation = isAdmin || isManager || isReceptionist || isSupervisor || isOwner;
+    const hasReservationPermission = user.permissions.includes('gestion_reservations');
+    
+    console.log('🔍 Vérification annulation réservation:', {
+      userId: user._id,
+      userRole: user.role,
+      canCancelReservation,
+      hasReservationPermission,
+      isOwner
+    });
+
+    if (!canCancelReservation || !hasReservationPermission) {
       return res.status(403).json({
         success: false,
-        message: 'Accès non autorisé'
+        message: 'Accès non autorisé pour annuler cette réservation'
+      });
+    }
+
+    // Vérifier si l'annulation est possible selon le statut
+    const cannotCancelStatuses = ['cancelled', 'completed', 'payment_failed'];
+    if (cannotCancelStatuses.includes(reservation.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Impossible d'annuler une réservation avec le statut "${reservation.status}"`
       });
     }
 
@@ -906,6 +1161,8 @@ exports.cancelReservation = async (req, res) => {
     }
 
     await reservation.save();
+
+    console.log(`✅ Réservation ${req.params.id} annulée par ${user.role}`);
 
     res.json({
       success: true,
@@ -923,12 +1180,20 @@ exports.cancelReservation = async (req, res) => {
 };
 
 /**
- * 🔹 Confirmer une réservation (Admin uniquement).
+ * 🔹 Confirmer une réservation avec contrôle d'accès strict
  */
 exports.confirmReservation = async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'Accès non autorisé. Admin requis.' });
+    const user = req.user;
+    const isAdmin = user.role === 'admin';
+    const isManager = user.role === 'manager';
+    
+    // Seuls admin et manager peuvent confirmer des réservations
+    if (!isAdmin && !isManager) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Accès non autorisé. Droits administrateur ou manager requis.' 
+      });
     }
     
     const reservation = await Reservation.findById(req.params.id);
@@ -940,8 +1205,18 @@ exports.confirmReservation = async (req, res) => {
       });
     }
 
+    // Vérifier que la réservation peut être confirmée
+    if (reservation.status !== 'pending' && reservation.status !== 'pending_payment') {
+      return res.status(400).json({
+        success: false,
+        message: `Impossible de confirmer une réservation avec le statut "${reservation.status}"`
+      });
+    }
+
     reservation.status = 'confirmed';
     await reservation.save();
+
+    console.log(`✅ Réservation ${req.params.id} confirmée par ${user.role}`);
 
     res.json({
       success: true,
@@ -960,28 +1235,30 @@ exports.confirmReservation = async (req, res) => {
 };
 
 // -----------------------------------------------------------
-// 🗑️ Fonctions Administratives
+// 🗑️ Fonctions Administratives avec Contrôle d'Accès Strict
 // -----------------------------------------------------------
 
 /**
- * ✅ Supprimer définitivement une réservation (Admin uniquement, avec protection de statut).
+ * ✅ Supprimer définitivement une réservation (Admin uniquement)
  */
 exports.deleteReservation = async (req, res) => {
   try {
+    const user = req.user;
+    
+    // Seul l'admin peut supprimer définitivement
+    if (user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès non autorisé. Droits administrateur requis pour supprimer une réservation.'
+      });
+    }
+
     const reservation = await Reservation.findById(req.params.id);
 
     if (!reservation) {
       return res.status(404).json({
         success: false,
         message: 'Réservation non trouvée'
-      });
-    }
-
-    // Vérifier les permissions (admin uniquement)
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Accès non autorisé. Droits administrateur requis pour supprimer une réservation.'
       });
     }
 
@@ -996,6 +1273,8 @@ exports.deleteReservation = async (req, res) => {
 
     // Supprimer la réservation
     await Reservation.findByIdAndDelete(req.params.id);
+
+    console.log(`🗑️ Réservation ${req.params.id} supprimée définitivement par admin`);
 
     res.json({
       success: true,
@@ -1012,74 +1291,17 @@ exports.deleteReservation = async (req, res) => {
   }
 };
 
-/**
- * ✅ Statistiques des codes promo utilisés (Admin uniquement).
- */
-exports.getPromoCodeStats = async (req, res) => {
-  try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Accès non autorisé. Droits administrateur requis.'
-      });
-    }
-
-    const stats = await Reservation.aggregate([
-      {
-        $match: {
-          codePromoUtilise: { $exists: true, $ne: null }
-        }
-      },
-      {
-        $group: {
-          _id: '$codePromoUtilise',
-          count: {
-            $sum: 1
-          },
-          totalReduction: {
-            $sum: '$reductionAppliquee'
-          },
-          totalRevenue: {
-            $sum: '$totalAmount'
-          }
-        }
-      },
-      {
-        $sort: {
-          count: -1
-        }
-      }
-    ]);
-
-    res.json({
-      success: true,
-      stats
-    });
-
-  } catch (error) {
-    console.error('❌ Erreur statistiques codes promo:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la récupération des statistiques',
-      error: error.message
-    });
-  }
-};
-
 // -----------------------------------------------------------
-// 🧾 FONCTIONS DE REÇU
+// 🧾 FONCTIONS DE REÇU avec Contrôle d'Accès
 // -----------------------------------------------------------
 
 /**
  * 🔹 Générer un reçu HTML pour une réservation
  */
-/**
- * 🔹 Générer un reçu PDF pour une réservation
- */
 exports.generateReceipt = async (req, res) => {
   try {
     const reservation = await Reservation.findById(req.params.id)
-      .populate('client', 'name surname email phone')
+      .populate('client', 'name surname email phone role')
       .populate('chambre', 'number name type price amenities')
       .populate('codePromo', 'code description value type');
 
@@ -1090,25 +1312,107 @@ exports.generateReceipt = async (req, res) => {
       });
     }
 
-    // Vérifier les permissions
-    const isAdmin = req.user.role === 'admin';
-    const isOwner = reservation.client && reservation.client._id.equals(req.user._id);
-
-    if (!isAdmin && !isOwner) {
+    const user = req.user;
+    const isAdmin = user.role === 'admin';
+    const isManager = user.role === 'manager';
+    const isReceptionist = user.role === 'receptionist';
+    const isSupervisor = user.role === 'supervisor';
+    const isOwner = reservation.client && reservation.client._id.equals(user._id);
+    
+    const canViewReceipt = isAdmin || isManager || isReceptionist || isSupervisor || isOwner;
+    const hasReservationPermission = user.permissions.includes('gestion_reservations');
+    
+    if (!canViewReceipt || !hasReservationPermission) {
       return res.status(403).json({
         success: false,
         message: 'Accès non autorisé à ce reçu'
       });
     }
 
-    // Générer le HTML du reçu
-    const receiptHtml = generateReceiptHTML(reservation);
-    
+    // Générer le HTML du reçu (simplifié pour l'exemple)
+    const receiptHtml = `
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reçu Réservation #${reservation._id}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 40px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .hotel-name { font-size: 24px; font-weight: bold; color: #2c3e50; }
+          .receipt-title { font-size: 20px; margin-top: 20px; }
+          .section { margin: 20px 0; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+          .info-item { margin: 10px 0; }
+          .label { font-weight: bold; color: #555; }
+          .value { color: #333; }
+          .total { font-size: 18px; font-weight: bold; margin-top: 30px; padding-top: 20px; border-top: 2px solid #ddd; }
+          .footer { margin-top: 50px; text-align: center; color: #777; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="hotel-name">GRAND HOTEL</div>
+          <div class="receipt-title">REÇU DE RÉSERVATION</div>
+          <div>N° ${reservation._id}</div>
+        </div>
+        
+        <div class="section">
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="label">Client:</div>
+              <div class="value">${reservation.client?.name || reservation.clientInfo?.name} ${reservation.client?.surname || reservation.clientInfo?.surname}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">Email:</div>
+              <div class="value">${reservation.client?.email || reservation.clientInfo?.email}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">Chambre:</div>
+              <div class="value">${reservation.chambre?.number} - ${reservation.chambre?.name}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">Période:</div>
+              <div class="value">${new Date(reservation.checkIn).toLocaleDateString('fr-FR')} au ${new Date(reservation.checkOut).toLocaleDateString('fr-FR')}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">Nuits:</div>
+              <div class="value">${reservation.nights || reservation.nuits}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">Statut:</div>
+              <div class="value">${reservation.status}</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <div class="info-item">
+            <div class="label">Montant Total:</div>
+            <div class="value total">${reservation.totalAmount?.toLocaleString('fr-FR')} FCFA</div>
+          </div>
+          ${reservation.codePromoUtilise ? `
+          <div class="info-item">
+            <div class="label">Code Promo:</div>
+            <div class="value">${reservation.codePromoUtilise} (Réduction: ${reservation.reductionAppliquee?.toLocaleString('fr-FR')} FCFA)</div>
+          </div>
+          ` : ''}
+        </div>
+        
+        <div class="footer">
+          <div>Reçu généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}</div>
+          <div>GRAND HOTEL - Tél: +237 XXX XX XX XX</div>
+        </div>
+      </body>
+      </html>
+    `;
+
     // Vérifier si le client demande un PDF
     const acceptHeader = req.headers.accept || '';
     const wantsPDF = acceptHeader.includes('application/pdf') || req.query.format === 'pdf';
     
-    if (wantsPDF) {
+    if (wantsPDF && PDFGenerator && typeof PDFGenerator.generatePDF === 'function') {
       try {
         console.log('📄 Tentative de génération PDF avec Puppeteer...');
         
@@ -1124,12 +1428,16 @@ exports.generateReceipt = async (req, res) => {
         
       } catch (pdfError) {
         console.error('❌ Erreur génération PDF, fallback vers HTML:', pdfError);
-        // Fallback vers HTML en cas d'erreur
-        return sendHTMLReceipt(res, receiptHtml, reservation._id);
+        // Fallback vers HTML
+        res.setHeader('Content-Type', 'text/html');
+        res.setHeader('Content-Disposition', `inline; filename="receipt-${reservation._id}.html"`);
+        return res.send(receiptHtml);
       }
     } else {
       // Retourner le HTML par défaut
-      return sendHTMLReceipt(res, receiptHtml, reservation._id);
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Disposition', `inline; filename="receipt-${reservation._id}.html"`);
+      return res.send(receiptHtml);
     }
 
   } catch (error) {
@@ -1142,129 +1450,22 @@ exports.generateReceipt = async (req, res) => {
   }
 };
 
-// Fonction helper pour envoyer le HTML
-function sendHTMLReceipt(res, html, reservationId) {
-  res.setHeader('Content-Type', 'text/html');
-  res.setHeader('Content-Disposition', `inline; filename="receipt-${reservationId}.html"`);
-  res.send(html);
-}
-
-// Fonction helper pour générer le HTML
-function generateReceiptHTML(reservation) {
-  // Copiez ici tout le code HTML de la fonction précédente
-  // ...
-  return htmlContent;
-}
-
-/**
- * 🔹 Télécharger le reçu en PDF (option simplifiée)
- */
-exports.downloadReceipt = async (req, res) => {
-  try {
-    const reservation = await Reservation.findById(req.params.id)
-      .populate('client', 'name surname email phone')
-      .populate('chambre', 'name type price')
-      .populate('codePromo', 'code description');
-
-    if (!reservation) {
-      return res.status(404).json({
-        success: false,
-        message: 'Réservation non trouvée'
-      });
-    }
-
-    // Vérifier les permissions
-    const isAdmin = req.user.role === 'admin';
-    const isOwner = reservation.client && reservation.client._id.equals(req.user._id);
-
-    if (!isAdmin && !isOwner) {
-      return res.status(403).json({
-        success: false,
-        message: 'Accès non autorisé à ce reçu'
-      });
-    }
-
-    // Créer un nom de fichier
-    const clientName = `${reservation.client?.name || reservation.clientInfo?.name}_${reservation.client?.surname || reservation.clientInfo?.surname}`;
-    const fileName = `Reçu_${clientName}_${reservation._id}_${new Date(reservation.checkIn).toISOString().split('T')[0]}.html`;
-    
-    // Forcer le téléchargement
-    res.setHeader('Content-Type', 'text/html');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    
-    // Rediriger vers la route de génération avec le paramètre de téléchargement
-    return res.redirect(`/api/reservations/${req.params.id}/receipt?format=pdf`);
-
-  } catch (error) {
-    console.error('❌ Erreur téléchargement reçu:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors du téléchargement du reçu',
-      error: error.message
-    });
-  }
-};
-
-/**
- * 🔹 Obtenir l'URL du reçu (pour intégration frontend)
- */
-exports.getReceiptUrl = async (req, res) => {
-  try {
-    const reservation = await Reservation.findById(req.params.id);
-
-    if (!reservation) {
-      return res.status(404).json({
-        success: false,
-        message: 'Réservation non trouvée'
-      });
-    }
-
-    // Vérifier les permissions
-    const isAdmin = req.user.role === 'admin';
-    const isOwner = reservation.client && reservation.client._id.equals(req.user._id);
-
-    if (!isAdmin && !isOwner) {
-      return res.status(403).json({
-        success: false,
-        message: 'Accès non autorisé à ce reçu'
-      });
-    }
-
-    // Retourner l'URL du reçu
-    const receiptUrl = `${req.protocol}://${req.get('host')}/api/reservations/${req.params.id}/receipt`;
-    const downloadUrl = `${req.protocol}://${req.get('host')}/api/reservations/${req.params.id}/receipt/download`;
-
-    res.json({
-      success: true,
-      receiptUrl,
-      downloadUrl,
-      reservationId: reservation._id,
-      message: 'URLs du reçu générées avec succès'
-    });
-
-  } catch (error) {
-    console.error('❌ Erreur génération URL reçu:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la génération de l\'URL du reçu',
-      error: error.message
-    });
-  }
-};
-
 // -----------------------------------------------------------
-// 📊 NOUVELLES STATISTIQUES
+// 📊 STATISTIQUES avec Contrôle d'Accès Strict
 // -----------------------------------------------------------
 
 /**
- * ✅ Obtenir les statistiques des réservations (Admin uniquement)
+ * ✅ Obtenir les statistiques des réservations (Admin et Manager uniquement)
  */
 exports.getReservationStats = async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
+    const user = req.user;
+    
+    // Seuls admin et manager peuvent voir les statistiques
+    if (user.role !== 'admin' && user.role !== 'manager') {
       return res.status(403).json({
         success: false,
-        message: 'Accès non autorisé. Droits administrateur requis.'
+        message: 'Accès non autorisé. Droits administrateur ou manager requis.'
       });
     }
 
@@ -1378,6 +1579,63 @@ exports.getReservationStats = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Erreur statistiques réservations:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des statistiques',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * ✅ Statistiques des codes promo utilisés (Admin et Manager uniquement)
+ */
+exports.getPromoCodeStats = async (req, res) => {
+  try {
+    const user = req.user;
+    
+    // Seuls admin et manager peuvent voir les statistiques des codes promo
+    if (user.role !== 'admin' && user.role !== 'manager') {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès non autorisé. Droits administrateur ou manager requis.'
+      });
+    }
+
+    const stats = await Reservation.aggregate([
+      {
+        $match: {
+          codePromoUtilise: { $exists: true, $ne: null }
+        }
+      },
+      {
+        $group: {
+          _id: '$codePromoUtilise',
+          count: {
+            $sum: 1
+          },
+          totalReduction: {
+            $sum: '$reductionAppliquee'
+          },
+          totalRevenue: {
+            $sum: '$totalAmount'
+          }
+        }
+      },
+      {
+        $sort: {
+          count: -1
+        }
+      }
+    ]);
+
+    res.json({
+      success: true,
+      stats
+    });
+
+  } catch (error) {
+    console.error('❌ Erreur statistiques codes promo:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des statistiques',
