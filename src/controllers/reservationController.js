@@ -792,17 +792,32 @@ exports.getReservations = async (req, res) => {
       // Compter le total pour la pagination
       const totalCount = await Reservation.countDocuments(query.getFilter());
       
+      // ✅ CORRECTION : SUPPRIMEZ 'match: { role: { $ne: 'client' } }'
       // Exécuter la requête avec les populations complètes
       reservations = await query
         .populate({
           path: 'client',
-          select: 'name surname email phone',
-          match: { role: { $ne: 'client' } } // Exclure les clients standards si nécessaire
+          select: 'name surname email phone role' // ✅ Retirez le 'match'
         })
         .populate('chambre', 'number name type price currency status')
         .populate('codePromo', 'code description type value');
         
       console.log(`📊 ${reservations.length} réservation(s) trouvée(s) sur ${totalCount} total`);
+      
+      // Debug : vérifier si les clients sont bien peuplés
+      console.log('🔍 Debug population clients:');
+      reservations.forEach((res, index) => {
+        console.log(`  Réservation ${index + 1}:`, {
+          id: res._id,
+          clientId: res.client?._id,
+          client: res.client ? {
+            name: res.client.name,
+            surname: res.client.surname,
+            role: res.client.role
+          } : 'NULL',
+          clientInfo: res.clientInfo || 'N/A'
+        });
+      });
       
     } else {
       // ❌ ACCÈS REFUSÉ: L'utilisateur n'a pas les permissions nécessaires
@@ -817,8 +832,9 @@ exports.getReservations = async (req, res) => {
     const formattedReservations = reservations.map(reservation => {
       const reservationObj = reservation.toObject();
       
-      // S'assurer que le client existe
+      // ✅ AMÉLIORATION : S'assurer que le client existe, sinon utiliser clientInfo
       if (!reservationObj.client) {
+        console.warn(`⚠️ Client non peuplé pour réservation ${reservationObj._id}, utilisation clientInfo`);
         reservationObj.client = {
           name: reservationObj.clientInfo?.name || 'N/A',
           surname: reservationObj.clientInfo?.surname || 'N/A',
@@ -839,10 +855,10 @@ exports.getReservations = async (req, res) => {
       success: true,
       count: formattedReservations.length,
       reservations: formattedReservations,
-      totalCount: formattedReservations.length, // Pour la pagination frontend
+      totalCount: totalCount, // ✅ Utilisez le vrai totalCount
       page: parseInt(req.query.page) || 1,
       limit: parseInt(req.query.limit) || 10,
-      hasMore: formattedReservations.length === (parseInt(req.query.limit) || 10)
+      hasMore: (page * limit) < totalCount // ✅ Correction du calcul hasMore
     });
 
   } catch (error) {
