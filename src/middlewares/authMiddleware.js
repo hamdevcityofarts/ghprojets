@@ -6,216 +6,60 @@ dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
-// ✅ DÉFINITION CENTRALISÉE DES PERMISSIONS (identique au frontend AddUser)
-const PERMISSIONS = {
-  GESTION_UTILISATEURS: 'gestion_utilisateurs',
-  GESTION_CHAMBRES: 'gestion_chambres',
-  GESTION_RESERVATIONS: 'gestion_reservations',
-  GESTION_CLIENTS: 'gestion_clients',
-  ACCES_FINANCES: 'acces_finances',
-  RAPPORTS: 'rapports',
-  PARAMETRES_SYSTEME: 'parametres_systeme',
-  GESTION_MENAGE: 'gestion_menage',
-  GESTION_RESTAURANT: 'gestion_restaurant'
-};
-
-// ✅ MAPPING DES RÔLES ET PERMISSIONS PAR DÉFAUT (identique au frontend AddUser)
-const ROLE_PERMISSIONS_MAP = {
-  'admin': [
-    PERMISSIONS.GESTION_UTILISATEURS,
-    PERMISSIONS.GESTION_CHAMBRES,
-    PERMISSIONS.GESTION_RESERVATIONS,
-    PERMISSIONS.GESTION_CLIENTS,
-    PERMISSIONS.ACCES_FINANCES,
-    PERMISSIONS.RAPPORTS,
-    PERMISSIONS.PARAMETRES_SYSTEME,
-    PERMISSIONS.GESTION_MENAGE,
-    PERMISSIONS.GESTION_RESTAURANT
-  ],
-  'manager': [
-    PERMISSIONS.GESTION_CHAMBRES,
-    PERMISSIONS.GESTION_RESERVATIONS,
-    PERMISSIONS.GESTION_CLIENTS,
-    PERMISSIONS.RAPPORTS,
-    PERMISSIONS.GESTION_MENAGE,
-    PERMISSIONS.GESTION_RESTAURANT
-  ],
-  'receptionist': [
-    PERMISSIONS.GESTION_RESERVATIONS,
-    PERMISSIONS.GESTION_CLIENTS
-  ],
-  'housekeeper': [
-    PERMISSIONS.GESTION_MENAGE
-  ],
-  'supervisor': [
-    PERMISSIONS.GESTION_CHAMBRES,
-    PERMISSIONS.GESTION_RESERVATIONS,
-    PERMISSIONS.GESTION_CLIENTS,
-    PERMISSIONS.GESTION_MENAGE,
-    PERMISSIONS.GESTION_RESTAURANT
-  ],
-  'technician': [
-    PERMISSIONS.GESTION_CHAMBRES
-  ],
-  'client': []
-};
-
-// ✅ MAPPING DES DÉPARTEMENTS PAR RÔLE
-const ROLE_DEPARTMENT_MAP = {
-  'admin': 'direction',
-  'manager': 'direction',
-  'receptionist': 'reception',
-  'housekeeper': 'housekeeping',
-  'supervisor': 'direction',
-  'technician': 'maintenance'
-};
-
-// -----------------------------------------------------------
-// ✅ MIDDLEWARE D'AUTHENTIFICATION DE BASE
-// -----------------------------------------------------------
-
-/**
- * 🔹 Middleware de protection des routes (authentification)
- * Valide le JWT et charge les informations utilisateur
- */
+// ✅ Middleware de protection des routes
 exports.protect = async (req, res, next) => {
   let token;
   
   try {
-    // Vérifier le token dans les headers
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
     }
     
     if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Non autorisé, aucun token fourni' 
-      });
+      return res.status(401).json({ success: false, message: 'Non autorisé, aucun token fourni' });
     }
     
-    // Vérifier et décoder le token
     const decoded = jwt.verify(token, JWT_SECRET);
     
     const userId = decoded.id || decoded.userId;
     if (!userId) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Token invalide: ID utilisateur manquant' 
-      });
+      return res.status(401).json({ success: false, message: 'Token invalide: ID utilisateur manquant' });
     }
     
-    // Récupérer l'utilisateur depuis la base de données
-    const user = await User.findById(userId).select('-password');
-    if (!user) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Utilisateur introuvable' 
-      });
+    req.user = await User.findById(userId).select('-password');
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Utilisateur introuvable' });
     }
     
     // Vérifier le statut actif
-    if (user.status !== 'actif') {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Compte non actif. Contactez un administrateur.' 
-      });
+    if (req.user.status !== 'actif') {
+      return res.status(403).json({ success: false, message: 'Compte non actif. Contactez un administrateur.' });
     }
     
-    // Mettre à jour la dernière connexion
-    user.lastLogin = new Date();
-    await user.save();
-    
-    // Ajouter des informations utiles à la requête
-    req.user = {
-      _id: user._id,
-      email: user.email,
-      name: user.name,
-      surname: user.surname,
-      role: user.role || 'client',
-      department: user.department,
-      permissions: user.permissions || [],
-      status: user.status
-    };
-    
-    console.log(`🔐 Utilisateur authentifié: ${user.email} (${user.role}) - Permissions: ${user.permissions?.length || 0}`);
+    // Mettre à jour lastLogin
+    req.user.lastLogin = new Date();
+    await req.user.save();
     
     next();
   } catch (err) {
-    console.error('❌ Erreur token:', err);
+    console.error('Erreur token:', err);
     if (err.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Token expiré' 
-      });
+      return res.status(401).json({ success: false, message: 'Token expiré' });
     }
     if (err.name === 'JsonWebTokenError') {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Token invalide' 
-      });
+      return res.status(401).json({ success: false, message: 'Token invalide' });
     }
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Erreur d\'authentification' 
-    });
+    return res.status(401).json({ success: false, message: 'Erreur d\'authentification' });
   }
 };
 
-// -----------------------------------------------------------
-// ✅ MIDDLEWARE PAR RÔLE
-// -----------------------------------------------------------
-
-/**
- * 🔹 Admin uniquement
- */
+// ✅ Middleware admin (compatible avec votre code existant)
 exports.admin = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
-    });
-  }
-  
-  if (req.user.role === 'admin') {
-    console.log(`✅ Accès admin accordé à: ${req.user.email}`);
-    return next();
-  }
-  
-  console.log(`⛔ Tentative d'accès admin par: ${req.user.email} (${req.user.role})`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès réservé aux administrateurs' 
-  });
+  if (req.user && req.user.role === 'admin') return next();
+  return res.status(403).json({ success: false, message: 'Accès réservé aux administrateurs' });
 };
 
-/**
- * 🔹 Personnel uniquement (tous sauf client)
- */
-exports.staff = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
-    });
-  }
-  
-  const staffRoles = ['admin', 'manager', 'receptionist', 'housekeeper', 'supervisor', 'technician'];
-  if (staffRoles.includes(req.user.role)) {
-    console.log(`✅ Accès personnel accordé à: ${req.user.email} (${req.user.role})`);
-    return next();
-  }
-  
-  console.log(`⛔ Tentative d'accès personnel par: ${req.user.email} (${req.user.role})`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès réservé au personnel' 
-  });
-};
-
-/**
- * 🔹 Générique restrictTo (compatible avec code existant)
- */
+// ✅ NOUVELLE FONCTION restrictTo (pour compatibilité avec chambreRoutes.js)
 exports.restrictTo = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {
@@ -226,390 +70,140 @@ exports.restrictTo = (...roles) => {
     }
     
     if (!roles.includes(req.user.role)) {
-      console.log(`⛔ Rôle non autorisé: ${req.user.role} (requis: ${roles.join(' ou ')})`);
       return res.status(403).json({
         success: false,
         message: `Accès refusé - Rôle requis: ${roles.join(' ou ')}`
       });
     }
     
-    console.log(`✅ Rôle autorisé: ${req.user.role}`);
     next();
   };
 };
 
-// -----------------------------------------------------------
-// ✅ MIDDLEWARE DE PERMISSIONS PAR MODULE (1 pour chaque permission)
-// -----------------------------------------------------------
+// ✅ Middleware requireRole (votre version existante, compatible)
+exports.requireRole = (...roles) => (req, res, next) => {
+  if (!req.user) return res.status(401).json({ success: false, message: 'Non authentifié' });
+  if (roles.includes(req.user.role)) return next();
+  return res.status(403).json({ success: false, message: `Accès réservé aux rôles: ${roles.join(', ')}` });
+};
+
+// ✅ Middleware requirePermission (votre version existante)
+exports.requirePermission = (...permissions) => (req, res, next) => {
+  if (!req.user) return res.status(401).json({ success: false, message: 'Non authentifié' });
+  const hasAll = permissions.every(p => req.user.permissions.includes(p));
+  if (hasAll) return next();
+  return res.status(403).json({ success: false, message: `Permission(s) requise(s): ${permissions.join(', ')}` });
+};
+
+// ✅ AJOUTER cette fonction à la fin de votre authMiddleware.js existant
 
 /**
- * 🔹 PERMISSION: GESTION_UTILISATEURS
- * Rôles autorisés par défaut: admin
+ * 🔹 MIDDLEWARE: Authentification optionnelle
+ * Extrait le token s'il existe, mais ne bloque pas si absent
+ * Utile pour les routes accessibles aux visiteurs ET aux utilisateurs connectés
  */
-exports.gestionUtilisateurs = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
+exports.optionalAuth = async (req, res, next) => {
+  try {
+    let token;
+
+    // Vérifier si un token est présent
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    // Si pas de token, continuer sans utilisateur
+    if (!token) {
+      req.user = null;
+      return next();
+    }
+
+    // Vérifier le token
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      
+      // Support pour decoded.id ou decoded.userId
+      const userId = decoded.id || decoded.userId;
+      
+      if (!userId) {
+        req.user = null;
+        return next();
+      }
+      
+      // Récupérer l'utilisateur
+      req.user = await User.findById(userId).select('-password');
+      
+      if (!req.user) {
+        req.user = null;
+      }
+    } catch (error) {
+      // Token invalide ou expiré, continuer sans utilisateur
+      console.log('⚠️ Token invalide ou expiré:', error.message);
+      req.user = null;
+    }
+
+    next();
+  } catch (error) {
+    console.error('❌ Erreur middleware optionalAuth:', error);
+    req.user = null;
+    next();
+  }
+};
+
+/**
+ * 🔹 MIDDLEWARE: Authentification requise (existant)
+ */
+exports.protect = async (req, res, next) => {
+  try {
+    let token;
+
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Accès non autorisé. Authentification requise.'
+      });
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = await User.findById(decoded.id).select('-password');
+
+      if (!req.user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Utilisateur introuvable'
+        });
+      }
+
+      next();
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token invalide ou expiré'
+      });
+    }
+  } catch (error) {
+    console.error('❌ Erreur middleware protect:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
     });
   }
-  
-  // Admin bypass
-  if (req.user.role === 'admin') {
-    console.log(`✅ Accès gestion_utilisateurs accordé à: ${req.user.email} (admin bypass)`);
-    return next();
-  }
-  
-  // Vérifier la permission
-  const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_UTILISATEURS);
-  
-  if (hasPermission) {
-    console.log(`✅ Accès gestion_utilisateurs accordé à: ${req.user.email} (permission)`);
-    return next();
-  }
-  
-  console.log(`⛔ Accès gestion_utilisateurs refusé à: ${req.user.email}`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès non autorisé - Permission requise: gestion_utilisateurs' 
-  });
 };
 
 /**
- * 🔹 PERMISSION: GESTION_CHAMBRES
- * Rôles autorisés par défaut: admin, manager, supervisor, technician
+ * 🔹 MIDDLEWARE: Admin uniquement (existant)
  */
-exports.gestionChambres = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
+exports.admin = (req, res, next) => {
+  if (req.user && req.user.role === 'admin') {
+    next();
+  } else {
+    res.status(403).json({
+      success: false,
+      message: 'Accès refusé. Droits administrateur requis.'
     });
   }
-  
-  // Admin bypass
-  if (req.user.role === 'admin') {
-    console.log(`✅ Accès gestion_chambres accordé à: ${req.user.email} (admin bypass)`);
-    return next();
-  }
-  
-  // Vérifier la permission
-  const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_CHAMBRES);
-  
-  if (hasPermission) {
-    console.log(`✅ Accès gestion_chambres accordé à: ${req.user.email} (permission)`);
-    return next();
-  }
-  
-  console.log(`⛔ Accès gestion_chambres refusé à: ${req.user.email}`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès non autorisé - Permission requise: gestion_chambres' 
-  });
 };
-
-/**
- * 🔹 PERMISSION: GESTION_RESERVATIONS
- * Rôles autorisés par défaut: admin, manager, receptionist, supervisor
- */
-exports.gestionReservations = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
-    });
-  }
-  
-  // Admin bypass
-  if (req.user.role === 'admin') {
-    console.log(`✅ Accès gestion_reservations accordé à: ${req.user.email} (admin bypass)`);
-    return next();
-  }
-  
-  // Vérifier la permission
-  const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_RESERVATIONS);
-  
-  if (hasPermission) {
-    console.log(`✅ Accès gestion_reservations accordé à: ${req.user.email} (permission)`);
-    return next();
-  }
-  
-  console.log(`⛔ Accès gestion_reservations refusé à: ${req.user.email}`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès non autorisé - Permission requise: gestion_reservations' 
-  });
-};
-
-/**
- * 🔹 PERMISSION: GESTION_CLIENTS
- * Rôles autorisés par défaut: admin, manager, receptionist, supervisor
- */
-exports.gestionClients = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
-    });
-  }
-  
-  // Admin bypass
-  if (req.user.role === 'admin') {
-    console.log(`✅ Accès gestion_clients accordé à: ${req.user.email} (admin bypass)`);
-    return next();
-  }
-  
-  // Vérifier la permission
-  const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_CLIENTS);
-  
-  if (hasPermission) {
-    console.log(`✅ Accès gestion_clients accordé à: ${req.user.email} (permission)`);
-    return next();
-  }
-  
-  console.log(`⛔ Accès gestion_clients refusé à: ${req.user.email}`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès non autorisé - Permission requise: gestion_clients' 
-  });
-};
-
-/**
- * 🔹 PERMISSION: ACCES_FINANCES
- * Rôles autorisés par défaut: admin
- */
-exports.acesFinances = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
-    });
-  }
-  
-  // Admin bypass
-  if (req.user.role === 'admin') {
-    console.log(`✅ Accès acces_finances accordé à: ${req.user.email} (admin bypass)`);
-    return next();
-  }
-  
-  // Vérifier la permission
-  const hasPermission = req.user.permissions.includes(PERMISSIONS.ACCES_FINANCES);
-  
-  if (hasPermission) {
-    console.log(`✅ Accès acces_finances accordé à: ${req.user.email} (permission)`);
-    return next();
-  }
-  
-  console.log(`⛔ Accès acces_finances refusé à: ${req.user.email}`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès non autorisé - Permission requise: acces_finances' 
-  });
-};
-
-/**
- * 🔹 PERMISSION: RAPPORTS
- * Rôles autorisés par défaut: admin, manager
- */
-exports.rapports = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
-    });
-  }
-  
-  // Admin bypass
-  if (req.user.role === 'admin') {
-    console.log(`✅ Accès rapports accordé à: ${req.user.email} (admin bypass)`);
-    return next();
-  }
-  
-  // Vérifier la permission
-  const hasPermission = req.user.permissions.includes(PERMISSIONS.RAPPORTS);
-  
-  if (hasPermission) {
-    console.log(`✅ Accès rapports accordé à: ${req.user.email} (permission)`);
-    return next();
-  }
-  
-  console.log(`⛔ Accès rapports refusé à: ${req.user.email}`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès non autorisé - Permission requise: rapports' 
-  });
-};
-
-/**
- * 🔹 PERMISSION: PARAMETRES_SYSTEME
- * Rôles autorisés par défaut: admin
- */
-exports.parametresSysteme = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
-    });
-  }
-  
-  // Admin bypass
-  if (req.user.role === 'admin') {
-    console.log(`✅ Accès parametres_systeme accordé à: ${req.user.email} (admin bypass)`);
-    return next();
-  }
-  
-  // Vérifier la permission
-  const hasPermission = req.user.permissions.includes(PERMISSIONS.PARAMETRES_SYSTEME);
-  
-  if (hasPermission) {
-    console.log(`✅ Accès parametres_systeme accordé à: ${req.user.email} (permission)`);
-    return next();
-  }
-  
-  console.log(`⛔ Accès parametres_systeme refusé à: ${req.user.email}`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès non autorisé - Permission requise: parametres_systeme' 
-  });
-};
-
-/**
- * 🔹 PERMISSION: GESTION_MENAGE
- * Rôles autorisés par défaut: admin, manager, housekeeper, supervisor
- */
-exports.gestionMenage = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
-    });
-  }
-  
-  // Admin bypass
-  if (req.user.role === 'admin') {
-    console.log(`✅ Accès gestion_menage accordé à: ${req.user.email} (admin bypass)`);
-    return next();
-  }
-  
-  // Vérifier la permission
-  const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_MENAGE);
-  
-  if (hasPermission) {
-    console.log(`✅ Accès gestion_menage accordé à: ${req.user.email} (permission)`);
-    return next();
-  }
-  
-  console.log(`⛔ Accès gestion_menage refusé à: ${req.user.email}`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès non autorisé - Permission requise: gestion_menage' 
-  });
-};
-
-/**
- * 🔹 PERMISSION: GESTION_RESTAURANT
- * Rôles autorisés par défaut: admin, manager, supervisor
- */
-exports.gestionRestaurant = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentification requise' 
-    });
-  }
-  
-  // Admin bypass
-  if (req.user.role === 'admin') {
-    console.log(`✅ Accès gestion_restaurant accordé à: ${req.user.email} (admin bypass)`);
-    return next();
-  }
-  
-  // Vérifier la permission
-  const hasPermission = req.user.permissions.includes(PERMISSIONS.GESTION_RESTAURANT);
-  
-  if (hasPermission) {
-    console.log(`✅ Accès gestion_restaurant accordé à: ${req.user.email} (permission)`);
-    return next();
-  }
-  
-  console.log(`⛔ Accès gestion_restaurant refusé à: ${req.user.email}`);
-  return res.status(403).json({ 
-    success: false, 
-    message: 'Accès non autorisé - Permission requise: gestion_restaurant' 
-  });
-};
-
-// -----------------------------------------------------------
-// ✅ ALIAS POUR COMPATIBILITÉ (anciens noms)
-// -----------------------------------------------------------
-
-exports.reservationAccess = exports.gestionReservations;
-exports.clientManagementAccess = exports.gestionClients;
-exports.roomManagementAccess = exports.gestionChambres;
-exports.userManagementAccess = exports.gestionUtilisateurs;
-exports.financeAccess = exports.acesFinances;
-exports.reportAccess = exports.rapports;
-exports.systemAccess = exports.parametresSysteme;
-exports.housekeepingAccess = exports.gestionMenage;
-exports.restaurantAccess = exports.gestionRestaurant;
-
-// -----------------------------------------------------------
-// ✅ CONSTANTES ET UTILITAIRES
-// -----------------------------------------------------------
-
-/**
- * 🔹 Vérifier si un utilisateur a une permission
- */
-exports.hasPermission = (user, permission) => {
-  if (!user) return false;
-  if (user.role === 'admin') return true; // Admin a tout
-  return user.permissions && user.permissions.includes(permission);
-};
-
-/**
- * 🔹 Vérifier si un utilisateur a un rôle
- */
-exports.hasRole = (user, role) => {
-  if (!user) return false;
-  return user.role === role;
-};
-
-/**
- * 🔹 Obtenir les permissions par défaut pour un rôle
- */
-exports.getDefaultPermissionsForRole = (role) => {
-  return ROLE_PERMISSIONS_MAP[role] || [];
-};
-
-/**
- * 🔹 Générer une politique d'accès pour un utilisateur
- */
-exports.generateAccessPolicy = (user) => {
-  if (!user) return { allowed: false };
-  
-  return {
-    allowed: true,
-    role: user.role,
-    department: user.department,
-    permissions: user.permissions || [],
-    hasGestionUtilisateurs: user.role === 'admin' || user.permissions.includes(PERMISSIONS.GESTION_UTILISATEURS),
-    hasGestionChambres: user.role === 'admin' || user.permissions.includes(PERMISSIONS.GESTION_CHAMBRES),
-    hasGestionReservations: user.role === 'admin' || user.permissions.includes(PERMISSIONS.GESTION_RESERVATIONS),
-    hasGestionClients: user.role === 'admin' || user.permissions.includes(PERMISSIONS.GESTION_CLIENTS),
-    hasAcesFinances: user.role === 'admin' || user.permissions.includes(PERMISSIONS.ACCES_FINANCES),
-    hasRapports: user.role === 'admin' || user.permissions.includes(PERMISSIONS.RAPPORTS),
-    hasParametresSysteme: user.role === 'admin' || user.permissions.includes(PERMISSIONS.PARAMETRES_SYSTEME),
-    hasGestionMenage: user.role === 'admin' || user.permissions.includes(PERMISSIONS.GESTION_MENAGE),
-    hasGestionRestaurant: user.role === 'admin' || user.permissions.includes(PERMISSIONS.GESTION_RESTAURANT)
-  };
-};
-
-// -----------------------------------------------------------
-// ✅ EXPORT DES CONSTANTES
-// -----------------------------------------------------------
-
-exports.PERMISSIONS = PERMISSIONS;
-exports.ROLE_PERMISSIONS_MAP = ROLE_PERMISSIONS_MAP;
-exports.ROLE_DEPARTMENT_MAP = ROLE_DEPARTMENT_MAP;
-
-module.exports = exports;
