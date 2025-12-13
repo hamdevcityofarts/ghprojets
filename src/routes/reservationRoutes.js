@@ -1006,4 +1006,4 @@ router.get('/stats/overview', protect, admin, reservationController.getReservati
  */
 router.get('/stats/promo-codes', protect, admin, reservationController.getPromoCodeStats);
 
-module.exports = router;
+module.exports = router;    
