@@ -8,6 +8,7 @@ const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 const path = require('path');
 const fs = require('fs');
+const seedDatabase = require('./utils/seed'); // 1. Ajoute l'import du seed
 
 // Configuration environment
 dotenv.config();
@@ -136,6 +137,11 @@ const startServer = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/grandhotel');
     console.log('✅ Connecté à MongoDB');
+
+if (process.env.NODE_ENV === 'production') {
+       console.log('🌱 Tentative de peuplement de la base de données...');
+       await seedDatabase(); 
+    }
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
