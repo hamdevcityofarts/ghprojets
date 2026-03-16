@@ -9,9 +9,6 @@ const swaggerUi = require('swagger-ui-express');
 const path = require('path');
 const fs = require('fs');
 
-// Import du script de seed
-const seedDatabase = require('./utils/seed');
-
 // Configuration environment
 dotenv.config();
 
@@ -25,8 +22,7 @@ const corsOptions = {
     'http://localhost:5173',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
-    'http://127.0.0.1:5173',
-    'https://api.grandhotelaeroport.com' // Ajout de ton domaine de prod
+    'http://127.0.0.1:5173'   
   ],
   credentials: true,
   optionsSuccessStatus: 200
@@ -84,10 +80,8 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: process.env.NODE_ENV === 'production' 
-          ? 'https://api.grandhotelaeroport.com/api' 
-          : `http://localhost:${process.env.PORT || 5000}/api`,
-        description: 'Serveur API',
+        url: `http://localhost:${process.env.PORT || 5000}/api`,
+        description: 'Serveur de développement',
       },
     ],
     components: {
@@ -140,25 +134,17 @@ app.get('/', (req, res) => {
 // Connexion MongoDB et démarrage
 const startServer = async () => {
   try {
-    // Utilisation de MONGODB_URI (prioritaire en prod) ou MONGO_URI
-    const dbUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/grandhotel';
-    await mongoose.connect(dbUri);
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/grandhotel');
     console.log('✅ Connecté à MongoDB');
 
-    // ✅ LANCEMENT DU SEED AUTOMATIQUE
-    try {
-      console.log('🌱 Initialisation du peuplement des données (seed)...');
-      await seedDatabase();
-      console.log('✅ Seed terminé avec succès');
-    } catch (seedError) {
-      console.error('⚠️ Erreur lors du seed (le serveur continue quand même):', seedError);
-    }
-
-    const PORT = process.env.PORT || 5016;
+    const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
       console.log(`\n🚀 Serveur démarré sur le port ${PORT}`);
       console.log(`📚 Documentation: http://localhost:${PORT}/api-docs`);
+      console.log(`🔐 Test auth: http://localhost:${PORT}/api/auth/login`);
       console.log(`📁 Dossier uploads: ${uploadsDir}`);
+      console.log(`📁 Dossier rooms: ${roomsDir}`);
+      console.log(`🖼️  Images accessibles via: http://localhost:${PORT}/uploads/rooms/`);
     });
 
   } catch (error) {
