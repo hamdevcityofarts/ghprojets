@@ -4,6 +4,8 @@ const User = require('../models/userModel');
 const Chambre = require('../models/chambreModel');
 const Reservation = require('../models/reservationModel');
 const dotenv = require('dotenv');
+const mongoose = require('mongoose');
+const connectDB = require('../config/db');
 
 dotenv.config();
 
@@ -72,7 +74,6 @@ const randomImages = () => {
 const seedAdminUser = async () => {
   try {
     const admin = await User.findOne({ email: ADMIN_EMAIL });
-
     if (admin) {
       console.log(`ℹ️ Admin existe déjà: ${ADMIN_EMAIL}`);
       return;
@@ -104,7 +105,6 @@ const seedAdminUser = async () => {
     });
 
     console.log(`✅ Admin créé : ${ADMIN_EMAIL}`);
-
   } catch (error) {
     console.error("❌ Erreur création admin:", error);
   }
@@ -117,31 +117,33 @@ const seedRooms = async () => {
     console.log("🏨 Création des chambres...");
 
     const rooms = [];
+    const roomTypes = ["standard", "deluxe", "suite"];
+    const categories = ["single", "double", "family"];
+    const bedTypes = ["single", "double", "king"];
 
     for (let i = 1; i <= 15; i++) {
       const city = random(ROOM_CITIES);
-      const roomType = random(["standard", "deluxe", "suite"]);
+      const type = roomTypes[i % roomTypes.length];
+      const category = categories[i % categories.length];
+      const bedType = bedTypes[i % bedTypes.length];
 
-      const price =
-        roomType === "standard"
-          ? Math.floor(Math.random() * 60) + 80
-          : roomType === "deluxe"
-          ? Math.floor(Math.random() * 80) + 140
-          : Math.floor(Math.random() * 120) + 220;
+      let price;
+      if (type === "standard") price = Math.floor(Math.random() * 60) + 80;
+      else if (type === "deluxe") price = Math.floor(Math.random() * 80) + 140;
+      else price = Math.floor(Math.random() * 120) + 220;
 
-      const name = `${roomType.toUpperCase()} ${city}`;
+      const name = `${type.toUpperCase()} ${city} ${100 + i}`;
 
       rooms.push({
         name,
         slug: slugify(name),
         description: random(DESCRIPTIONS),
-        type: roomType,
-        category: random(["single", "double", "family"]),
-        bedType: random(["single", "double", "king"]), // ✅ correction enum
+        type,
+        category,
+        bedType,
         price,
-        discountPrice:
-          Math.random() > 0.7 ? price - Math.floor(Math.random() * 30) : null,
-        capacity: Math.floor(Math.random() * 3) + 2,
+        discountPrice: Math.random() > 0.7 ? price - Math.floor(Math.random() * 30) : null,
+        capacity: category === "single" ? 1 : category === "double" ? 2 : 4,
         size: Math.floor(Math.random() * 30) + 25,
         floor: Math.floor(Math.random() * 5) + 1,
         number: 100 + i,
@@ -160,9 +162,7 @@ const seedRooms = async () => {
     }
 
     await Chambre.insertMany(rooms);
-
     console.log(`✅ ${rooms.length} chambres créées`);
-
   } catch (error) {
     console.error("❌ Erreur création chambres:", error);
   }
@@ -198,9 +198,6 @@ module.exports = { resetDatabase };
 // ================= EXECUTION DIRECTE =================
 
 if (require.main === module) {
-  const mongoose = require('mongoose');
-  const connectDB = require('../config/db');
-
   const run = async () => {
     try {
       await connectDB();
