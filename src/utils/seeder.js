@@ -7,14 +7,16 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-// ==================== CONFIG ADMIN ====================
+
+// ================= CONFIG ADMIN =================
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@grandhotel.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin123!';
 const ADMIN_NAME = 'Super';
 const ADMIN_SURNAME = 'Admin';
 
-// ==================== IMAGES CLOUDINARY ====================
+
+// ================= IMAGES CLOUDINARY =================
 
 const ROOM_IMAGES = [
 'https://res.cloudinary.com/ddbprltwf/image/upload/v1767786389/grand-hotel/rooms/k5ce0lpzd1nhjg9benc7.jpg',
@@ -28,58 +30,61 @@ const ROOM_IMAGES = [
 'https://res.cloudinary.com/ddbprltwf/image/upload/v1764337774/grand-hotel/rooms/hv5hokdyv36c7yrdykgg.jpg'
 ];
 
-// ==================== VILLES ====================
+
+// ================= VILLES =================
 
 const ROOM_CITIES = [
-"Douala",
-"Yaoundé",
-"Abidjan",
-"Dakar",
-"Lagos",
-"Nairobi",
-"Casablanca",
-"Tunis",
-"Cape Town",
-"Accra",
-"Paris",
-"Londres",
-"Rome",
-"Berlin",
-"Madrid",
-"Amsterdam",
-"Lisbonne",
-"Bruxelles",
-"Genève",
-"Vienne"
+"Douala","Yaoundé","Abidjan","Dakar","Lagos",
+"Nairobi","Casablanca","Tunis","Cape Town","Accra",
+"Paris","Londres","Rome","Berlin","Madrid",
+"Amsterdam","Lisbonne","Bruxelles","Genève","Vienne"
 ];
 
-// ==================== DESCRIPTIONS ====================
+
+// ================= DESCRIPTIONS =================
 
 const DESCRIPTIONS = [
-"Chambre luxueuse offrant un confort exceptionnel avec vue panoramique et décoration moderne.",
-"Suite élégante parfaite pour un séjour relaxant avec lit king-size et espace salon.",
-"Chambre premium idéale pour les voyageurs d'affaires et les séjours touristiques.",
-"Suite raffinée combinant élégance contemporaine et équipements haut de gamme.",
-"Chambre spacieuse avec ambiance chaleureuse et prestations de qualité."
+"Chambre luxueuse offrant un confort exceptionnel avec vue panoramique.",
+"Suite élégante idéale pour un séjour relaxant avec lit king-size.",
+"Chambre premium parfaite pour les voyageurs d'affaires.",
+"Suite raffinée combinant élégance moderne et confort.",
+"Chambre spacieuse avec ambiance chaleureuse et prestations haut de gamme."
 ];
 
-// ==================== UTILITAIRE ALEATOIRE ====================
+
+// ================= UTILITAIRES =================
 
 const random = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+const slugify = (text) =>
+text
+  .toLowerCase()
+  .replace(/\s+/g, "-")
+  .replace(/[^\w\-]+/g, "");
+
 const randomImages = () => {
+
   const shuffled = [...ROOM_IMAGES].sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, Math.random() > 0.5 ? 4 : 3);
+
+  return shuffled
+    .slice(0, Math.random() > 0.5 ? 4 : 3)
+    .map((url, index) => ({
+      url,
+      public_id: `room_seed_${Date.now()}_${index}`
+    }));
+
 };
 
-// ==================== SEED ADMIN ====================
+
+// ================= SEED ADMIN =================
 
 const seedAdminUser = async () => {
+
   try {
 
-    const adminUser = await User.findOne({ email: ADMIN_EMAIL });
+    const admin = await User.findOne({ email: ADMIN_EMAIL });
 
-    if (adminUser) {
+    if (admin) {
       console.log(`ℹ️ Admin existe déjà: ${ADMIN_EMAIL}`);
       return;
     }
@@ -112,11 +117,15 @@ const seedAdminUser = async () => {
     console.log(`✅ Admin créé : ${ADMIN_EMAIL}`);
 
   } catch (error) {
-    console.error('❌ Erreur création admin', error);
+
+    console.error("❌ Erreur création admin:", error);
+
   }
+
 };
 
-// ==================== SEED CHAMBRES ====================
+
+// ================= SEED CHAMBRES =================
 
 const seedRooms = async () => {
 
@@ -129,13 +138,44 @@ const seedRooms = async () => {
     for (let i = 1; i <= 15; i++) {
 
       const city = random(ROOM_CITIES);
+      const roomType = random(["standard", "deluxe", "suite"]);
+
+      const price =
+        roomType === "standard"
+          ? Math.floor(Math.random() * 60) + 80
+          : roomType === "deluxe"
+          ? Math.floor(Math.random() * 80) + 140
+          : Math.floor(Math.random() * 120) + 220;
+
+      const name = `${roomType.toUpperCase()} ${city}`;
 
       rooms.push({
-        name: `Suite ${city}`,
+
+        name,
+
+        slug: slugify(name),
+
         description: random(DESCRIPTIONS),
-        price: Math.floor(Math.random() * 200) + 80,
+
+        type: roomType,
+
+        category: random(["single", "double", "family"]),
+
+        bedType: random(["queen", "king", "double"]),
+
+        price,
+
+        discountPrice:
+          Math.random() > 0.7 ? price - Math.floor(Math.random() * 30) : null,
+
         capacity: Math.floor(Math.random() * 3) + 2,
+
         size: Math.floor(Math.random() * 30) + 25,
+
+        floor: Math.floor(Math.random() * 5) + 1,
+
+        number: 100 + i,
+
         amenities: [
           "WiFi",
           "Climatisation",
@@ -143,10 +183,15 @@ const seedRooms = async () => {
           "Mini bar",
           "Salle de bain privée"
         ],
-        images: randomImages(),
+
+        rating: (Math.random() * 2 + 3).toFixed(1),
+
+        featured: Math.random() > 0.8,
+
         status: "disponible",
-        number: 100 + i,
-        floor: Math.floor(Math.random() * 5) + 1
+
+        images: randomImages()
+
       });
 
     }
@@ -157,13 +202,14 @@ const seedRooms = async () => {
 
   } catch (error) {
 
-    console.error("❌ Erreur création chambres", error);
+    console.error("❌ Erreur création chambres:", error);
 
   }
 
 };
 
-// ==================== CLEAN DATABASE ====================
+
+// ================= CLEAN DATABASE =================
 
 const cleanDatabase = async () => {
 
@@ -178,13 +224,14 @@ const cleanDatabase = async () => {
 
   } catch (error) {
 
-    console.error("❌ Erreur nettoyage", error);
+    console.error("❌ Erreur nettoyage:", error);
 
   }
 
 };
 
-// ==================== RESET DATABASE ====================
+
+// ================= RESET DATABASE =================
 
 const resetDatabase = async () => {
 
@@ -200,13 +247,15 @@ const resetDatabase = async () => {
 
 };
 
-// ==================== EXPORT ====================
+
+// ================= EXPORT =================
 
 module.exports = {
   resetDatabase
 };
 
-// ==================== EXECUTION DIRECTE ====================
+
+// ================= EXECUTION DIRECTE =================
 
 if (require.main === module) {
 
