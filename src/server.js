@@ -141,6 +141,10 @@ const startServer = async () => {
 
 
     const PORT = process.env.PORT || 5000;
+    if (process.env.NODE_ENV === 'production') {
+       console.log('🌱 Tentative de peuplement de la base de données...');
+       await seedDatabase(); 
+    }
     app.listen(PORT, () => {
       console.log(`\n🚀 Serveur démarré sur le port ${PORT}`);
       console.log(`📚 Documentation: http://localhost:${PORT}/api-docs`);
