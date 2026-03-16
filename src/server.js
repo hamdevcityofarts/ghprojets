@@ -8,7 +8,7 @@ const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 const path = require('path');
 const fs = require('fs');
-const seedDatabase = require('./utils/seed'); // 1. Ajoute l'import du seed
+const seedDatabase = require('./utils/seeder'); // 1. Ajoute l'import du seed
 
 // Configuration environment
 dotenv.config();
