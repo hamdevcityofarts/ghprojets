@@ -22,7 +22,9 @@ const corsOptions = {
     'http://localhost:5173',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
-    'http://127.0.0.1:5173'   
+    'http://127.0.0.1:5173',
+    'https://backend.grandhotelaeroport.com', // Indispensable pour Swagger en prod
+    'https://grandhotelaeroport.com'      // Ajoute ton futur URL frontend ici 
   ],
   credentials: true,
   optionsSuccessStatus: 200
@@ -80,8 +82,11 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: `http://localhost:${process.env.PORT || 5000}/api`,
-        description: 'Serveur de développement',
+        // Cette ligne détecte automatiquement si on est en prod ou en local
+        url: process.env.NODE_ENV === 'production' 
+          ? 'https://backend.grandhotelaeroport.com/api' 
+          : `http://localhost:${process.env.PORT || 5000}/api`,
+        description: process.env.NODE_ENV === 'production' ? 'Serveur Production' : 'Serveur Local',
       },
     ],
     components: {
