@@ -8,7 +8,6 @@ const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 const path = require('path');
 const fs = require('fs');
-const seedDatabase = require('./utils/seeder'); // 1. Ajoute l'import du seed
 
 // Configuration environment
 dotenv.config();
@@ -141,10 +140,6 @@ const startServer = async () => {
 
 
     const PORT = process.env.PORT || 5000;
-    if (process.env.NODE_ENV === 'production') {
-       console.log('🌱 Tentative de peuplement de la base de données...');
-       await seedDatabase(); 
-    }
     app.listen(PORT, () => {
       console.log(`\n🚀 Serveur démarré sur le port ${PORT}`);
       console.log(`📚 Documentation: http://localhost:${PORT}/api-docs`);
