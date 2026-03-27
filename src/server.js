@@ -23,8 +23,12 @@ const corsOptions = {
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
     'http://127.0.0.1:5173',
-    'https://backend.grandhotelaeroport.com', // Indispensable pour Swagger en prod
-    'https://grandhotelaeroport.com'      // Ajoute ton futur URL frontend ici 
+
+    // PROD
+    'https://backend.grandhotelaeroport.com',
+    'https://grandhotelaeroport.com',
+    'https://www.grandhotelaeroport.com',
+    'https://admin.grandhotelaeroport.com' // ✅ AJOUT CRUCIAL
   ],
   credentials: true,
   optionsSuccessStatus: 200
